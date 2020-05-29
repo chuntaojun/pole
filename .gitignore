@@ -1,0 +1,11 @@
+# Output folder of build
+bin
+
+# MacOS file viewer garbage.
+.DS_Store
+
+# VSCode config
+.vscode
+
+# JetBrains IDE config
+.idea
