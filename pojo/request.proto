@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+package pojo;
+
+message BaseRequest {
+  int32 label = 1;
+  google.protobuf.Any body = 2;
+  string requestId = 3;
+}
