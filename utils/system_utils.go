@@ -38,6 +38,22 @@ func GetInt64FromEnvOptional(key string, defVal int64) int64 {
 	return defVal
 }
 
+func GetIntFromEnvOptional(key string, defVal int) int {
+	i, err := GetIntFromEnv(key)
+	if err == nil {
+		return i
+	}
+	return defVal
+}
+
+func GetBoolFromEnvOptional(key string, defVal bool) bool {
+	i, err := GetBoolFromEnv(key)
+	if err == nil {
+		return i
+	}
+	return defVal
+}
+
 func GetInt8FromEnv(key string) int8 {
 	i, err := GetIntFromEnv(key)
 	if err == nil {
@@ -75,13 +91,9 @@ func GetIntFromEnv(key string) (int, error) {
 	return strconv.Atoi(val)
 }
 
-func GetBoolFromEnv(key string) bool {
+func GetBoolFromEnv(key string) (bool, error) {
 	val := os.Getenv(key)
-	b, err := strconv.ParseBool(val)
-	if err == nil {
-		return b
-	}
-	panic(err)
+	return strconv.ParseBool(val)
 }
 
 func GetStringFromEnv(key string) string {

@@ -16,10 +16,9 @@ type void struct{}
 var member void
 
 type PublisherCenter struct {
-	sharePublisher   *Publisher
-	Publishers       sync.Map
-	smartSubscribers utils.SyncSet
-	hasSubscriber    bool
+	sharePublisher *SharePublisher
+	Publishers     sync.Map
+	hasSubscriber  bool
 
 	// just for test
 	onExpire func(event Event)
@@ -35,30 +34,27 @@ var defaultSlowRingBufferSize = utils.GetInt64FromEnvOptional("conf.notify.slow-
 func Init() {
 	once.Do(func() {
 		instance = &PublisherCenter{
-			Publishers:       sync.Map{},
-			smartSubscribers: utils.NewSyncSet(),
-			hasSubscriber:    false,
+			Publishers:    sync.Map{},
+			hasSubscriber: false,
 		}
 
-		instance.sharePublisher = &Publisher{
-			queue: make(chan Event, defaultSlowRingBufferSize),
-			topic: "00--0-SlowEvent-0--00",
-		}
-
+		instance.sharePublisher = &SharePublisher{}
+		instance.sharePublisher.queue = make(chan Event, defaultSlowRingBufferSize)
+		instance.sharePublisher.topic = "00--0-SlowEvent-0--00"
 		instance.sharePublisher.start()
 
 	})
 }
 
-func RegisterDefaultPublisher(event Event) (*Publisher, error) {
+func RegisterDefaultPublisher(event Event) error {
 	return RegisterPublisher(event, defaultFastRingBufferSize)
 }
 
-func RegisterSharePublisher(event Event) (*Publisher, error) {
+func RegisterSharePublisher(event Event) error {
 	return RegisterPublisher(event, 0)
 }
 
-func RegisterPublisher(event Event, ringBufferSize int64) (*Publisher, error) {
+func RegisterPublisher(event Event, ringBufferSize int64) error {
 	if ringBufferSize <= 32 {
 		ringBufferSize = 128
 	}
@@ -79,15 +75,15 @@ func RegisterPublisher(event Event, ringBufferSize int64) (*Publisher, error) {
 			publisher := p.(*Publisher)
 			publisher.start()
 
-			return publisher, nil
+			return nil
 		}
 
-		return nil, errors.New("register event publisher failed")
+		return errors.New("register event publisher failed")
 	case SlowEvent:
-		return instance.sharePublisher, nil
+		return nil
 	default:
 		_ = t
-		return nil, errors.New("this event not support, just support notify/notify_center.Event or notify/notify_center.SlowEvent")
+		return errors.New("this event not support, just support notify/notify_center.Event or notify/notify_center.SlowEvent")
 	}
 }
 
@@ -114,17 +110,39 @@ func RegisterSubscriber(s Subscriber) error {
 
 		topic := t.SubscribeType()
 
-		if v, ok := instance.Publishers.Load(topic); ok {
-			p := v.(*Publisher)
-			(*p).AddSubscriber(s)
+		switch e := topic.(type) {
+		case FastEvent:
+			if v, ok := instance.Publishers.Load(e.Name()); ok {
+				p := v.(*Publisher)
+				(*p).AddSubscriber(s)
+				return nil
+			}
+
+			return fmt.Errorf("this topic [%s] no publisher", topic)
+		case SlowEvent:
+			instance.sharePublisher.AddSubscriber(s)
 			return nil
+		default:
+			return errors.New("wrong subscriber type")
 		}
 
-		return fmt.Errorf("this topic [%s] no publisher", topic)
-
 	case MultiSubscriber:
-		instance.smartSubscribers.Add(s)
-		instance.hasSubscriber = true
+		names := t.SubscribeTypes()
+		for _, topic := range names {
+			switch e := topic.(type) {
+			case FastEvent:
+				if v, ok := instance.Publishers.Load(e.Name()); ok {
+					p := v.(*Publisher)
+					(*p).AddSubscriber(s)
+					return nil
+				}
+
+				return fmt.Errorf("this topic [%s] no publisher", topic)
+			case SlowEvent:
+				instance.sharePublisher.AddSubscriber(s)
+				return nil;
+			}
+		}
 		return nil
 	default:
 		_ = t
@@ -147,7 +165,13 @@ func DeregisterSubscriber(s Subscriber) error {
 		return fmt.Errorf("this topic [%s] no publisher", topic)
 
 	case MultiSubscriber:
-		instance.smartSubscribers.Remove(s)
+		names := t.SubscribeTypes()
+		for _, topic := range names {
+			if v, ok := instance.Publishers.Load(topic); ok {
+				p := v.(*Publisher)
+				(*p).RemoveSubscriber(s)
+			}
+		}
 		return nil
 	default:
 		_ = t
@@ -190,24 +214,21 @@ type SlowEvent interface {
 }
 
 type Subscriber interface {
-
 	OnEvent(event Event)
 
 	IgnoreExpireEvent() bool
 }
 
 type SingleSubscriber interface {
-
 	Subscriber
 
-	SubscribeType() string
+	SubscribeType() Event
 }
 
 type MultiSubscriber interface {
-
 	Subscriber
 
-	CanNotify(name string) bool
+	SubscribeTypes() []Event
 }
 
 type Publisher struct {
@@ -251,73 +272,76 @@ func (p *Publisher) openHandler() {
 	}()
 
 	for {
-		if p.canOpen || instance.hasSubscriber {
+		if p.canOpen {
 			break
 		}
 		time.Sleep(time.Duration(100) * time.Millisecond)
 	}
 
 	for e := range p.queue {
-
 		fmt.Printf("handler receive event : %s\n", e)
+		p.notifySubscriber(e)
+	}
+}
 
-		name := e.Name()
+func (p *Publisher) notifySubscriber(event Event) {
+	currentSequence := event.(FastEvent).Sequence()
+	p.subscribers.Range(func(key, value interface{}) bool {
 
-		switch t := e.(type) {
+		defer func() {
+			if err := recover(); err != nil {
+				fmt.Printf("notify subscriber has error : %s \n", err)
+			}
+		}()
 
-		case FastEvent:
+		subscriber := key.(Subscriber)
 
-			currentSequence := t.Sequence()
-
-			p.subscribers.Range(func(key, value interface{}) bool {
-
-				defer func() {
-					if err := recover(); err != nil {
-						fmt.Printf("notify subscriber has error : %s \n", err)
-					}
-				}()
-
-				subscriber := key.(SingleSubscriber)
-
-				// shared message channels need to handle event types
-				if strings.Compare(name, subscriber.SubscribeType()) != 0 {
-					return true
-				}
-
-				if subscriber.IgnoreExpireEvent() && currentSequence < p.lastSequence {
-
-					// just for test
-					if instance.onExpire != nil {
-						instance.onExpire(e)
-					}
-
-					return true
-				}
-
-				subscriber.OnEvent(e)
-				return true
-			})
-
-			p.lastSequence = int64(math.Max(float64(currentSequence), float64(p.lastSequence)))
-
-		case SlowEvent:
-
-			instance.smartSubscribers.Range(func(value interface{}) {
-
-				defer func() {
-					if err := recover(); err != nil {
-						fmt.Printf("notify multi subscriber has error : %s \n", err)
-					}
-				}()
-
-				subscriber := value.(MultiSubscriber)
-
-				if subscriber.CanNotify(name) {
-					subscriber.OnEvent(e)
-				}
-
-			})
+		if subscriber.IgnoreExpireEvent() && currentSequence < p.lastSequence {
+			// just for test
+			if instance.onExpire != nil {
+				instance.onExpire(event)
+			}
+			return true
 		}
 
-	}
+		subscriber.OnEvent(event)
+		return true
+	})
+
+	p.lastSequence = int64(math.Max(float64(currentSequence), float64(p.lastSequence)))
+}
+
+type SharePublisher struct {
+	Publisher
+}
+
+func (sp *SharePublisher) notifySubscriber(event Event) {
+	topic := event.Name()
+	sp.subscribers.Range(func(key, value interface{}) bool {
+
+		defer func() {
+			if err := recover(); err != nil {
+				fmt.Printf("notify subscriber has error : %s \n", err)
+			}
+		}()
+
+		switch s := key.(type) {
+		case SingleSubscriber:
+
+			if strings.Compare(topic, s.SubscribeType().Name()) == 0 {
+				s.OnEvent(event)
+			}
+
+		case MultiSubscriber:
+			for _, watch := range s.SubscribeTypes() {
+				if strings.Compare(watch.Name(), topic) == 0 {
+					s.OnEvent(event)
+					break
+				}
+			}
+		}
+
+		return true
+	})
+
 }

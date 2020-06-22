@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"nacos-go/utils"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -33,8 +32,8 @@ func (s *StringEventSubscriber) OnEvent(event Event) {
 	s.fn(se.content)
 }
 
-func (s *StringEventSubscriber) SubscribeType() string {
-	return "StringEvent"
+func (s *StringEventSubscriber) SubscribeType() Event {
+	return &StringEvent{}
 }
 
 func (s *StringEventSubscriber) IgnoreExpireEvent() bool {
@@ -51,7 +50,7 @@ func Test_PublishEvent(t *testing.T) {
 	}()
 
 	Init()
-	_, err := RegisterPublisher(&StringEvent{}, 16)
+	err := RegisterPublisher(&StringEvent{}, 16)
 	assert.Nil(t, err, "register publisher should be success, %s", err)
 	isOk, err := PublishEvent(&StringEvent{content: "liaochuntao"})
 	assert.Nil(t, err, "publish event should be success, %s", err)
@@ -71,7 +70,7 @@ func Test_PublishEventAndSubscribe(t *testing.T) {
 
 	var reference atomic.Value
 
-	_, err := RegisterPublisher(&StringEvent{}, 16)
+	err := RegisterPublisher(&StringEvent{}, 16)
 	assert.Nil(t, err, "register publisher should be success, %s", err)
 	err = RegisterSubscriber(&StringEventSubscriber{fn: func(s string) {
 		fmt.Printf("receive content : %s \n", s)
@@ -113,8 +112,8 @@ func (s *IgnoreExpireSubscriber) OnEvent(event Event) {
 	s.fn(se.content)
 }
 
-func (s *IgnoreExpireSubscriber) SubscribeType() string {
-	return "ExpireEvent"
+func (s *IgnoreExpireSubscriber) SubscribeType() Event {
+	return &ExpireEvent{}
 }
 
 func (s *IgnoreExpireSubscriber) IgnoreExpireEvent() bool {
@@ -140,7 +139,7 @@ func Test_IgnoreExpireEvent(t *testing.T)  {
 		atomic.StoreInt64(&cnt, e.sequence)
 	})
 
-	_, err := RegisterPublisher(&ExpireEvent{}, 16)
+	err := RegisterPublisher(&ExpireEvent{}, 16)
 	assert.Nil(t, err, "register publisher should be success, %s", err)
 
 	err = RegisterSubscriber(&IgnoreExpireSubscriber{fn: func(s string) {
@@ -205,8 +204,8 @@ func (s *SlowEventSubscriber) OnEvent(event Event)  {
 	}
 }
 
-func (s *SlowEventSubscriber) CanNotify(topic string) bool {
-	return strings.Compare(topic, "SlowEventOne") == 0 || strings.Compare(topic, "SlowEventTwo") == 0
+func (s *SlowEventSubscriber) SubscribeTypes() []Event {
+	return []Event {&SlowEventOne{}, &SlowEventTwo{}}
 }
 
 func (s *SlowEventSubscriber) IgnoreExpireEvent() bool {
@@ -226,11 +225,11 @@ func Test_PublishSlowEvent(t *testing.T) {
 
 	var reference atomic.Value
 
-	_, err := RegisterSharePublisher(&SlowEventOne{})
+	err := RegisterSharePublisher(&SlowEventOne{})
 	assert.Nil(t, err, "register publisher should be success, %s", err)
-	_, err = RegisterSharePublisher(&SlowEventTwo{})
+	err = RegisterSharePublisher(&SlowEventTwo{})
 	assert.Nil(t, err, "register publisher should be success, %s", err)
-	_, err = RegisterSharePublisher(&SlowEventThree{})
+	err = RegisterSharePublisher(&SlowEventThree{})
 	assert.Nil(t, err, "register publisher should be success, %s", err)
 
 
