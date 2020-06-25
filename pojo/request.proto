@@ -1,10 +1,102 @@
 syntax = "proto3";
 
 import "google/protobuf/any.proto";
+import "enpity.proto";
 package pojo;
 
-message BaseRequest {
+message GrpcRequest {
   int32 label = 1;
   google.protobuf.Any body = 2;
   string requestId = 3;
+  map<string, string> header = 4;
 }
+
+message GrpcResponse {
+  int32 label = 1;
+  google.protobuf.Any body = 2;
+  string requestId = 3;
+  map<string, string> header = 4;
+}
+
+// request pojo for discovery
+
+message InstanceRegister {
+  Instance instance = 1;
+  string namespaceId = 2;
+}
+
+message InstanceDeregister {
+  Instance instance = 1;
+  string namespaceId = 2;
+}
+
+message InstanceHeartBeat {
+  Instance instance = 1;
+  string namespaceId = 2;
+}
+
+message ServiceCreate {
+  Service service = 1;
+  string namespaceId = 2;
+}
+
+message ServiceUpdate {
+  Service service = 1;
+  string namespaceId = 2;
+}
+
+message ServiceDelete {
+  Service service = 1;
+  string namespaceId = 2;
+}
+
+message ClusterCreate {
+  string namespaceId = 1;
+  Cluster cluster = 2;
+}
+
+message ClusterUpdate {
+  string namespaceId = 1;
+  Cluster cluster = 2;
+}
+
+message ClusterDelete {
+  string namespaceId = 1;
+  Cluster cluster = 2;
+}
+
+message InstanceSelectorCreate {
+  string namespaceId = 1;
+  string serviceName = 2;
+  string group = 3;
+  string selectorContext = 4;
+}
+
+message InstanceSelectorUpdate {
+  string namespaceId = 1;
+  string serviceName = 2;
+  string group = 3;
+  string selectorContext = 4;
+}
+
+message QueryInstanceWithPage {
+  string namespaceId = 1;
+  string serviceName = 2;
+  string group = 3;
+  string clusterName = 4;
+  int32 pageNo = 5;
+  int32 pageSize = 6;
+}
+
+message SubscribeService {
+  string namespaceId = 1;
+  string serviceName = 2;
+  string group = 3;
+  string clusterName = 4;
+}
+
+message InstancesList {
+  repeated Instance instances = 1;
+}
+
+// request pojo for config

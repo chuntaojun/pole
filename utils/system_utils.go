@@ -101,7 +101,7 @@ func GetStringFromEnv(key string) string {
 }
 
 func PrintStack() string {
-	var buf [4096]byte
-	n := runtime.Stack(buf[:], false)
+	var buf [4096 << 2]byte
+	n := runtime.Stack(buf[:], true)
 	return string(buf[:n])
 }

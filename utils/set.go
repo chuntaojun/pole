@@ -48,8 +48,8 @@ type SyncSet struct {
 	container sync.Map
 }
 
-func NewSyncSet() SyncSet {
-	return SyncSet{
+func NewSyncSet() *SyncSet {
+	return &SyncSet{
 		container:sync.Map{},
 	}
 }

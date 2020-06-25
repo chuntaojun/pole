@@ -19,3 +19,12 @@ func BuildHttpsUrl(serverIp string, port int, path string) string {
 	return "https://" + serverIp + ":" + strconv.FormatInt(int64(port), 10) + "/" + path
 }
 
+func AnalyzeIpAndPort(address string) (string, int) {
+	info := strings.Split(address, ":")
+	ip := strings.TrimSpace(info[0])
+	port, err := strconv.Atoi(strings.TrimSpace(info[1]))
+	if err != nil {
+		panic(err)
+	}
+	return ip, port
+}

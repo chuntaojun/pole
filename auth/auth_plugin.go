@@ -2,18 +2,24 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"nacos-go/utils"
 	"strings"
 	"sync"
 	"time"
+	
+	"nacos-go/utils"
 )
 
 type OperationType int
 
-var ReadOnly OperationType = 0
-var WriteOnly OperationType = 1
-var ReadAndWrite OperationType = 2
+var (
+	ReadOnly     OperationType = 0
+	WriteOnly    OperationType = 1
+	ReadAndWrite OperationType = 2
+	
+	TokenNotExist = errors.New("token does not exist")
+)
 
 type User struct {
 	id       int64
@@ -71,39 +77,49 @@ func CreateSecurityCenter(ctx context.Context) *SecurityCenter {
 
 func (s *SecurityCenter) startRoleRefresh() {
 	utils.DoTickerSchedule(func() {
-
+	
 	}, time.Duration(30)*time.Second, s.ctx)
 }
 
 func (s *SecurityCenter) startTokenRefresh() {
 	utils.DoTickerSchedule(func() {
-
+	
 	}, time.Duration(30)*time.Second, s.ctx)
 }
 
-func (s *SecurityCenter) AuthFilter(token, resource string, operation OperationType) (bool, error) {
+func (s *SecurityCenter) Filter(header map[string]string) (bool, error) {
+	token := header["Token"]
+	resource := header["Resource"]
+	if role, exist := s.tokenMap[token]; exist {
+		return s.authFilter(token, resource, role.permissions.operation)
+	} else {
+		return false, TokenNotExist
+	}
+}
+
+func (s *SecurityCenter) authFilter(token, resource string, operation OperationType) (bool, error) {
 	defer func() {
 		s.tL.RUnlock()
 	}()
-
+	
 	s.tL.RLock()
-
+	
 	v, exist := s.tokenMap[token]
 	if !exist {
 		return false, fmt.Errorf("this token alreay expire")
 	}
-
+	
 	p := v.permissions
 	if strings.Compare(p.resource, resource) != 0 {
 		return false, fmt.Errorf("forbiden access this resource")
 	}
-
+	
 	if operation == p.operation {
 		return true, nil
 	}
-
+	
 	return false, fmt.Errorf("forbiden operation this resource, it just allow %s", parseOperationName(p.operation))
-
+	
 }
 
 func parseOperationName(ops OperationType) string {

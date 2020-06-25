@@ -1,31 +1,31 @@
 package pojo
 
 const (
-	InstanceRegister = iota
-	InstanceDeregister
-	InstanceUpdate
-	InstanceHeartBeat
+	InstanceRegisterReq = iota
+	InstanceDeregisterReq
+	InstanceUpdateReq
+	InstanceHeartBeatReq
 
-	ClusterCreate
-	ClusterUpdate
-	ClusterDelete
+	ClusterCreateReq
+	ClusterUpdateReq
+	ClusterDeleteReq
 
-	ServiceCreate
-	ServiceUpdate
-	ServiceDelete
+	ServiceCreateReq
+	ServiceUpdateReq
+	ServiceDeleteReq
 
-	InstanceList
-	ServiceList
+	InstanceListReq
+	ServiceListReq
 
-	ServiceChange
+	ServiceChangeReq
 )
 
 const (
-	ConfigPublish = iota
-	ConfigDelete
-	ConfigWatch
+	ConfigPublishReq = iota
+	ConfigDeleteReq
+	ConfigWatchReq
 )
 
 const (
-	DistroSync = iota
+	DistroSyncReq = iota
 )

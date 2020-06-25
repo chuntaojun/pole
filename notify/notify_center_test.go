@@ -216,7 +216,7 @@ func Test_PublishSlowEvent(t *testing.T) {
 
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Printf("Test_PublishSlowEvent has error : %v, %v\n", err, utils.PrintStack())
+			fmt.Printf("Test_PublishSlowEvent has error : %+v, %+v\n", err, utils.PrintStack())
 			t.FailNow()
 		}
 	}()

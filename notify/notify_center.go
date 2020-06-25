@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"sync"
 	"time"
 
@@ -38,10 +37,13 @@ func Init() {
 			hasSubscriber: false,
 		}
 
-		instance.sharePublisher = &SharePublisher{}
+		instance.sharePublisher = &SharePublisher{
+			listeners: sync.Map{},
+		}
 		instance.sharePublisher.queue = make(chan Event, defaultSlowRingBufferSize)
 		instance.sharePublisher.topic = "00--0-SlowEvent-0--00"
 		instance.sharePublisher.start()
+		instance.sharePublisher.canOpen = false
 
 	})
 }
@@ -107,9 +109,7 @@ func PublishEvent(event Event) (bool, error) {
 func RegisterSubscriber(s Subscriber) error {
 	switch t := s.(type) {
 	case SingleSubscriber:
-
 		topic := t.SubscribeType()
-
 		switch e := topic.(type) {
 		case FastEvent:
 			if v, ok := instance.Publishers.Load(e.Name()); ok {
@@ -134,15 +134,14 @@ func RegisterSubscriber(s Subscriber) error {
 				if v, ok := instance.Publishers.Load(e.Name()); ok {
 					p := v.(*Publisher)
 					(*p).AddSubscriber(s)
-					return nil
+				} else {
+					return fmt.Errorf("this topic [%s] no publisher", topic)
 				}
-
-				return fmt.Errorf("this topic [%s] no publisher", topic)
 			case SlowEvent:
-				instance.sharePublisher.AddSubscriber(s)
-				return nil;
+				// do nothing
 			}
 		}
+		instance.sharePublisher.AddSubscriber(s)
 		return nil
 	default:
 		_ = t
@@ -153,17 +152,13 @@ func RegisterSubscriber(s Subscriber) error {
 func DeregisterSubscriber(s Subscriber) error {
 	switch t := s.(type) {
 	case SingleSubscriber:
-
 		topic := t.SubscribeType()
-
+		instance.sharePublisher.RemoveSubscriber(s)
 		if v, ok := instance.Publishers.Load(topic); ok {
 			p := v.(*Publisher)
 			(*p).RemoveSubscriber(s)
-			return nil
 		}
-
-		return fmt.Errorf("this topic [%s] no publisher", topic)
-
+		return nil
 	case MultiSubscriber:
 		names := t.SubscribeTypes()
 		for _, topic := range names {
@@ -172,6 +167,7 @@ func DeregisterSubscriber(s Subscriber) error {
 				(*p).RemoveSubscriber(s)
 			}
 		}
+		instance.sharePublisher.RemoveSubscriber(s)
 		return nil
 	default:
 		_ = t
@@ -267,7 +263,7 @@ func (p *Publisher) openHandler() {
 
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Printf("dispose event has error : %s", err)
+			fmt.Printf("dispose fast event has error : %s\n", err)
 		}
 	}()
 
@@ -279,7 +275,7 @@ func (p *Publisher) openHandler() {
 	}
 
 	for e := range p.queue {
-		fmt.Printf("handler receive event : %s\n", e)
+		fmt.Printf("handler receive fast event : %s\n", e)
 		p.notifySubscriber(e)
 	}
 }
@@ -313,35 +309,84 @@ func (p *Publisher) notifySubscriber(event Event) {
 
 type SharePublisher struct {
 	Publisher
+	listeners	sync.Map
+}
+
+func (sp *SharePublisher) start() {
+	sp.init.Do(func() {
+		go sp.openHandler()
+	})
+}
+
+func (sp *SharePublisher) AddSubscriber(s Subscriber) {
+	switch t := s.(type) {
+	case SingleSubscriber:
+		topic := t.SubscribeType()
+		sp.listeners.LoadOrStore(topic.Name(), utils.NewSyncSet())
+		if set, exist := sp.listeners.Load(topic.Name()); exist {
+			set.(*utils.SyncSet).Add(s)
+			return
+		}
+		panic(fmt.Errorf("add subscriber failed"))
+	case MultiSubscriber:
+		for _, topic := range t.SubscribeTypes() {
+			switch t := topic.(type) {
+			case SlowEvent:
+				sp.listeners.LoadOrStore(t.Name(), utils.NewSyncSet())
+				if set, exist := sp.listeners.Load(t.Name()); exist {
+					set.(*utils.SyncSet).Add(s)
+				}
+			}
+		}
+	}
+	sp.canOpen = true
+}
+
+func (sp *SharePublisher) RemoveSubscriber(s Subscriber) {
+	switch t := s.(type) {
+	case SingleSubscriber:
+		topic := t.SubscribeType()
+		if set, exist := sp.listeners.Load(topic.Name()); exist {
+			set.(*utils.SyncSet).Remove(s)
+			return
+		}
+		panic(fmt.Errorf("add subscriber failed"))
+	case MultiSubscriber:
+		for _, topic := range t.SubscribeTypes() {
+			if set, exist := sp.listeners.Load(topic.Name()); exist {
+				set.(*utils.SyncSet).Remove(s)
+			}
+		}
+	}
+}
+
+func (sp *SharePublisher) openHandler() {
+
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("dispose slow event has error : %s\n", err)
+		}
+	}()
+
+	for {
+		if sp.canOpen {
+			break
+		}
+		time.Sleep(time.Duration(100) * time.Millisecond)
+	}
+
+	for e := range sp.queue {
+		fmt.Printf("handler receive slow event : %s\n", e)
+		sp.notifySubscriber(e)
+	}
 }
 
 func (sp *SharePublisher) notifySubscriber(event Event) {
 	topic := event.Name()
-	sp.subscribers.Range(func(key, value interface{}) bool {
-
-		defer func() {
-			if err := recover(); err != nil {
-				fmt.Printf("notify subscriber has error : %s \n", err)
-			}
-		}()
-
-		switch s := key.(type) {
-		case SingleSubscriber:
-
-			if strings.Compare(topic, s.SubscribeType().Name()) == 0 {
-				s.OnEvent(event)
-			}
-
-		case MultiSubscriber:
-			for _, watch := range s.SubscribeTypes() {
-				if strings.Compare(watch.Name(), topic) == 0 {
-					s.OnEvent(event)
-					break
-				}
-			}
-		}
-
-		return true
-	})
+	if set, exist := sp.listeners.Load(topic); exist {
+		set.(*utils.SyncSet).Range(func(value interface{}) {
+			value.(Subscriber).OnEvent(event)
+		})
+	}
 
 }
