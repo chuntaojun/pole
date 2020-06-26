@@ -6,11 +6,13 @@ package notify
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"nacos-go/utils"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"nacos-go/utils"
 )
 
 // test normal event function
@@ -96,7 +98,7 @@ func Test_PublishEventAndSubscribe(t *testing.T) {
 
 type ExpireEvent struct {
 	sequence int64
-	content string
+	content  string
 }
 
 func (s *ExpireEvent) Name() string {
@@ -124,7 +126,7 @@ func (s *IgnoreExpireSubscriber) IgnoreExpireEvent() bool {
 	return true
 }
 
-func Test_IgnoreExpireEvent(t *testing.T)  {
+func Test_IgnoreExpireEvent(t *testing.T) {
 
 	defer func() {
 		if err := recover(); err != nil {
@@ -152,7 +154,7 @@ func Test_IgnoreExpireEvent(t *testing.T)  {
 	}})
 	assert.Nil(t, err, "register subscriber should be success, %s", err)
 
-	isOk, err := PublishEvent(&ExpireEvent{sequence:10, content:"liaochuntao"})
+	isOk, err := PublishEvent(&ExpireEvent{sequence: 10, content: "liaochuntao"})
 	assert.Nil(t, err, "publish event should be success, %s", err)
 	assert.True(t, isOk, "publish event should be success")
 
@@ -162,7 +164,7 @@ func Test_IgnoreExpireEvent(t *testing.T)  {
 	assert.NotNil(t, v, "v must not be nil")
 	assert.Equal(t, "liaochuntao", v.(string), "StringEvent.content must be liaochuntao")
 
-	isOk, err = PublishEvent(&ExpireEvent{sequence:1, content:"liaochuntao2"})
+	isOk, err = PublishEvent(&ExpireEvent{sequence: 1, content: "liaochuntao2"})
 
 	time.Sleep(time.Duration(5) * time.Second)
 	assert.EqualValues(t, 1, cnt)
@@ -197,7 +199,7 @@ type SlowEventSubscriber struct {
 	f func(s string)
 }
 
-func (s *SlowEventSubscriber) OnEvent(event Event)  {
+func (s *SlowEventSubscriber) OnEvent(event Event) {
 	switch e := event.(type) {
 	case *SlowEventOne:
 		fmt.Printf("receive event %s \n", e.content)
@@ -209,7 +211,7 @@ func (s *SlowEventSubscriber) OnEvent(event Event)  {
 }
 
 func (s *SlowEventSubscriber) SubscribeTypes() []Event {
-	return []Event {&SlowEventOne{}, &SlowEventTwo{}}
+	return []Event{&SlowEventOne{}, &SlowEventTwo{}}
 }
 
 func (s *SlowEventSubscriber) IgnoreExpireEvent() bool {
@@ -236,7 +238,6 @@ func Test_PublishSlowEvent(t *testing.T) {
 	err = RegisterSharePublisher(&SlowEventThree{})
 	assert.Nil(t, err, "register publisher should be success, %s", err)
 
-
 	err = RegisterSubscriber(&SlowEventSubscriber{
 		f: func(s string) {
 			reference.Store(s)
@@ -244,7 +245,7 @@ func Test_PublishSlowEvent(t *testing.T) {
 	})
 	assert.Nil(t, err, "register subscriber should be success, %s", err)
 
-	isOk, err := PublishEvent(&SlowEventOne{content:"SlowEventOne"})
+	isOk, err := PublishEvent(&SlowEventOne{content: "SlowEventOne"})
 	assert.Nil(t, err, "publish event should be success, %s", err)
 	assert.True(t, isOk, "publish event should be success")
 
@@ -254,7 +255,7 @@ func Test_PublishSlowEvent(t *testing.T) {
 
 	reference.Store("")
 
-	isOk, err = PublishEvent(&SlowEventTwo{content:"SlowEventTwo"})
+	isOk, err = PublishEvent(&SlowEventTwo{content: "SlowEventTwo"})
 	assert.Nil(t, err, "publish event should be success, %s", err)
 	assert.True(t, isOk, "publish event should be success")
 
@@ -264,7 +265,7 @@ func Test_PublishSlowEvent(t *testing.T) {
 
 	reference.Store("")
 
-	isOk, err = PublishEvent(&SlowEventThree{content:"SlowEventThree"})
+	isOk, err = PublishEvent(&SlowEventThree{content: "SlowEventThree"})
 	assert.Nil(t, err, "publish event should be success, %s", err)
 	assert.True(t, isOk, "publish event should be success")
 

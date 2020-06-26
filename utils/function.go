@@ -11,7 +11,7 @@ func Runnable(f func() error) {
 	}
 }
 
-func Supplier(f func() (interface{}, error)) interface{}  {
+func Supplier(f func() (interface{}, error)) interface{} {
 	r, err := f()
 	if err != nil {
 		panic(err)

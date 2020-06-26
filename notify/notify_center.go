@@ -313,7 +313,7 @@ func (p *Publisher) notifySubscriber(event Event) {
 
 type SharePublisher struct {
 	Publisher
-	listeners	sync.Map
+	listeners sync.Map
 }
 
 func (sp *SharePublisher) start() {

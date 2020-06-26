@@ -6,12 +6,12 @@ package cluster
 
 import (
 	"fmt"
+
 	"nacos-go/sys"
 	"nacos-go/utils"
 )
 
 type MemberLookup interface {
-
 	Start() error
 
 	Observer(observer func(newMembers []*Member))
@@ -19,7 +19,6 @@ type MemberLookup interface {
 	Shutdown()
 
 	Name() string
-
 }
 
 const (
@@ -77,14 +76,13 @@ func SwitchMemberLookupAndCloseOld(name string, config *sys.Config, oldLookup Me
 }
 
 type StandaloneMemberLookup struct {
-
 }
 
 func (s *StandaloneMemberLookup) Start() error {
 	return nil
 }
 
-func  (s *StandaloneMemberLookup) Observer(observer func(newMembers []*Member))  {
+func (s *StandaloneMemberLookup) Observer(observer func(newMembers []*Member)) {
 
 }
 
@@ -96,15 +94,13 @@ func (s *StandaloneMemberLookup) Name() string {
 }
 
 type FileMemberLookup struct {
-
 }
-
 
 func (s *FileMemberLookup) Start() error {
 	return nil
 }
 
-func  (s *FileMemberLookup) Observer(observer func(newMembers []*Member))  {
+func (s *FileMemberLookup) Observer(observer func(newMembers []*Member)) {
 
 }
 
@@ -116,18 +112,15 @@ func (s *FileMemberLookup) Name() string {
 }
 
 type AddressServerMemberLookup struct {
-
 }
-
 
 func (s *AddressServerMemberLookup) Start() error {
 	return nil
 }
 
-func  (s *AddressServerMemberLookup) Observer(observer func(newMembers []*Member))  {
+func (s *AddressServerMemberLookup) Observer(observer func(newMembers []*Member)) {
 
 }
-
 
 func (s *AddressServerMemberLookup) Shutdown() {
 }
@@ -135,4 +128,3 @@ func (s *AddressServerMemberLookup) Shutdown() {
 func (s *AddressServerMemberLookup) Name() string {
 	return addressServerMemberLookup
 }
-

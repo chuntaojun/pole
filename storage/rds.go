@@ -6,14 +6,15 @@ package storage
 
 import (
 	"database/sql"
+	"path/filepath"
+
 	"nacos-go/sys"
 	"nacos-go/utils"
-	"path/filepath"
 )
 
 type SqlRequest struct {
-	sql		string
-	args	[]interface{}
+	sql  string
+	args []interface{}
 }
 
 type QueryRequest struct {
@@ -69,7 +70,6 @@ func (r *Rds) ExecuteQuery(query QueryRequest) (results []map[string]interface{}
 		cache[index] = &placeholder
 	}
 
-
 	for rows.Next() {
 		utils.Runnable(func() error {
 			return rows.Scan(cache)
@@ -91,4 +91,3 @@ func (r *Rds) ExecuteQuery(query QueryRequest) (results []map[string]interface{}
 func (r *Rds) ExecuteModify() error {
 
 }
-

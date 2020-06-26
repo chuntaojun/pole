@@ -6,9 +6,10 @@ package cluster
 
 import (
 	"math/rand"
-	"nacos-go/utils"
 	"strconv"
 	"strings"
+
+	"nacos-go/utils"
 )
 
 func OnSuccess(m *Member) {
@@ -16,12 +17,12 @@ func OnSuccess(m *Member) {
 	m.Status = Health
 }
 
-func OnFail(m *Member, err error)  {
+func OnFail(m *Member, err error) {
 	m.Status = Impeach
 	if strings.ContainsAny(err.Error(), "Connection refused") {
 		m.Status = Down
 	} else {
-		m.accessFailCnt ++
+		m.accessFailCnt++
 		if m.accessFailCnt >= utils.GetIntFromEnvOptional("conf.cluster.member.max-access-fail", 3) {
 			m.Status = Down
 		}
@@ -70,7 +71,7 @@ func KRandomMember(k int, members []*Member, filter func(m *Member) bool) []*Mem
 	totalSize := len(members)
 	set := utils.NewSet()
 
-	for i := 0; i < 3 * totalSize && set.Size() <= k; i ++ {
+	for i := 0; i < 3*totalSize && set.Size() <= k; i++ {
 		idx := rand.Intn(totalSize)
 
 		m := members[idx]
@@ -86,9 +87,8 @@ func KRandomMember(k int, members []*Member, filter func(m *Member) bool) []*Mem
 
 	set.Range(func(value interface{}) {
 		ms[index] = value.(*Member)
-		index ++
+		index++
 	})
 
 	return ms
 }
-

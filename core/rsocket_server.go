@@ -9,10 +9,10 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"strconv"
-	
+
 	"github.com/rsocket/rsocket-go"
 	"github.com/rsocket/rsocket-go/payload"
-	
+
 	"nacos-go/auth"
 	"nacos-go/transport"
 )
@@ -23,14 +23,17 @@ type RsocketServer struct {
 	security   *auth.SecurityCenter
 }
 
+type RsocketFilter interface {
+}
+
 func NewRsocketServer(label string, port int64, center *auth.SecurityCenter, openTSL bool) *RsocketServer {
-	
+
 	r := RsocketServer{
 		IsReady:    make(chan struct{}),
 		Dispatcher: transport.NewDispatcher(label),
 		security:   center,
 	}
-	
+
 	r.Dispatcher.RegisterFilter(func(payload payload.Payload) error {
 		metadata, ok := payload.Metadata()
 		if ok {
@@ -39,7 +42,7 @@ func NewRsocketServer(label string, port int64, center *auth.SecurityCenter, ope
 			if err != nil {
 				return err
 			}
-			
+
 			if r.security != nil {
 				ok, err := r.security.Filter(header)
 				if !ok {
@@ -49,7 +52,7 @@ func NewRsocketServer(label string, port int64, center *auth.SecurityCenter, ope
 		}
 		return nil
 	})
-	
+
 	go func() {
 		start := rsocket.Receive().
 			OnStart(func() {
@@ -58,7 +61,7 @@ func NewRsocketServer(label string, port int64, center *auth.SecurityCenter, ope
 			Acceptor(func(setup payload.SetupPayload, sendingSocket rsocket.CloseableRSocket) (socket rsocket.RSocket, err error) {
 				return rsocket.NewAbstractSocket(r.Dispatcher.CreateRequestResponseSocket(), r.Dispatcher.CreateRequestChannelSocket()), nil
 			}).
-			Transport("tcp://0.0.0.0:"+strconv.FormatInt(port, 10))
+			Transport("tcp://0.0.0.0:" + strconv.FormatInt(port, 10))
 		var err error
 		if openTSL {
 			err = start.ServeTLS(context.Background(), &tls.Config{})
@@ -69,7 +72,6 @@ func NewRsocketServer(label string, port int64, center *auth.SecurityCenter, ope
 			panic(err)
 		}
 	}()
-	
-	
+
 	return &r
 }
