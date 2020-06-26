@@ -16,6 +16,5 @@ func Test_FindSelfIp(t *testing.T) {
 		fmt.Printf("current find ipnet v6 info %+v\n", *ipnet)
 		fmt.Println("---------------------------------")
 	})
-
 	fmt.Println(targetIP)
 }
