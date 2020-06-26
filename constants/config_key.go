@@ -5,5 +5,7 @@
 package constants
 
 var (
-	TokenKey = "Token"
+	TokenKey    = "Token"
+	NamespaceId = "NamespaceId"
+	Group       = "Group"
 )

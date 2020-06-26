@@ -20,7 +20,7 @@ func ReadFileAllLine(name string) []string {
 	reader := bufio.NewReader(file)
 
 	defer file.Close()
-	
+
 	lines := make([]string, 10, 20)
 
 	for {
@@ -37,7 +37,7 @@ func ReadFileAllLine(name string) []string {
 
 }
 
-func ReadFileLineForeach(name string, consumer func(line string))  {
+func ReadFileLineForeach(name string, consumer func(line string)) {
 	file, err := os.OpenFile(name, os.O_RDONLY, 0666)
 	if err != nil {
 		panic(err)

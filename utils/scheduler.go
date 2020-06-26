@@ -13,11 +13,11 @@ func DoTimerSchedule(work func(), delay time.Duration, supplier func() time.Dura
 	go func() {
 		timer := time.NewTimer(delay)
 
-		for  {
+		for {
 			select {
-			case <- ctx.Done():
+			case <-ctx.Done():
 				timer.Stop()
-			case <- timer.C:
+			case <-timer.C:
 				work()
 				timer.Reset(supplier())
 			}
@@ -31,11 +31,11 @@ func DoTickerSchedule(work func(), delay time.Duration, ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(delay)
 
-		for  {
+		for {
 			select {
-			case <- ctx.Done():
+			case <-ctx.Done():
 				ticker.Stop()
-			case <- ticker.C:
+			case <-ticker.C:
 				work()
 			}
 		}

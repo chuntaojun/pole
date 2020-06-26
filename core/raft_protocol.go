@@ -6,20 +6,21 @@ package core
 
 import (
 	"fmt"
-	"github.com/hashicorp/raft"
-	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"io"
-	"nacos-go/consistency"
-	"nacos-go/utils"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/hashicorp/raft"
+	raftboltdb "github.com/hashicorp/raft-boltdb"
+
+	"nacos-go/consistency"
+	"nacos-go/utils"
 )
 
 type RaftProtocol struct {
-
 	raftDir string
 
 	lock sync.Locker

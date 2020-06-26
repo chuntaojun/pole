@@ -9,14 +9,14 @@ import "enpity.proto";
 package pojo;
 
 message GrpcRequest {
-  int32 label = 1;
+  string label = 1;
   google.protobuf.Any body = 2;
   string requestId = 3;
   map<string, string> header = 4;
 }
 
 message GrpcResponse {
-  int32 label = 1;
+  string label = 1;
   google.protobuf.Any body = 2;
   string requestId = 3;
   map<string, string> header = 4;

@@ -11,7 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	
+
+	"nacos-go/constants"
 	"nacos-go/utils"
 )
 
@@ -21,7 +22,7 @@ var (
 	ReadOnly     OperationType = 0
 	WriteOnly    OperationType = 1
 	ReadAndWrite OperationType = 2
-	
+
 	TokenNotExist = errors.New("token does not exist")
 )
 
@@ -81,19 +82,19 @@ func CreateSecurityCenter(ctx context.Context) *SecurityCenter {
 
 func (s *SecurityCenter) startRoleRefresh() {
 	utils.DoTickerSchedule(func() {
-	
+
 	}, time.Duration(30)*time.Second, s.ctx)
 }
 
 func (s *SecurityCenter) startTokenRefresh() {
 	utils.DoTickerSchedule(func() {
-	
+
 	}, time.Duration(30)*time.Second, s.ctx)
 }
 
 func (s *SecurityCenter) Filter(header map[string]string) (bool, error) {
-	token := header["Token"]
-	resource := header["Resource"]
+	token := header[constants.TokenKey]
+	resource := s.buildResource(header)
 	if role, exist := s.tokenMap[token]; exist {
 		return s.authFilter(token, resource, role.permissions.operation)
 	} else {
@@ -105,25 +106,25 @@ func (s *SecurityCenter) authFilter(token, resource string, operation OperationT
 	defer func() {
 		s.tL.RUnlock()
 	}()
-	
+
 	s.tL.RLock()
-	
+
 	v, exist := s.tokenMap[token]
 	if !exist {
 		return false, fmt.Errorf("this token alreay expire")
 	}
-	
+
 	p := v.permissions
 	if strings.Compare(p.resource, resource) != 0 {
 		return false, fmt.Errorf("forbiden access this resource")
 	}
-	
+
 	if operation == p.operation {
 		return true, nil
 	}
-	
+
 	return false, fmt.Errorf("forbiden operation this resource, it just allow %s", parseOperationName(p.operation))
-	
+
 }
 
 func parseOperationName(ops OperationType) string {
@@ -139,10 +140,20 @@ func parseOperationName(ops OperationType) string {
 	}
 }
 
-func (s *SecurityCenter) analyzeResource(resource string) map[string]string {
-	detail := strings.Split(resource, "@@")
-	info := make(map[string]string)
-	info["namespace"] = detail[0]
-	info["group"] = detail[1]
-	return info
+// {namespace}@@{group}
+func (s *SecurityCenter) buildResource(header map[string]string) string {
+	namesapceId := header[constants.NamespaceId]
+	group := header[constants.Group]
+	resource := ""
+	if namesapceId != "" {
+		resource += namesapceId
+	}
+	resource += ":"
+
+	if group == "" {
+		resource += "*"
+	} else {
+		resource += group
+	}
+	return resource
 }

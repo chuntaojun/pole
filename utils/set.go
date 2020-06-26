@@ -11,12 +11,12 @@ type void struct{}
 var member void
 
 type Set struct {
-	container	map[interface{}]void
+	container map[interface{}]void
 }
 
 func NewSet() Set {
 	return Set{
-		container:make(map[interface{}]void),
+		container: make(map[interface{}]void),
 	}
 }
 
@@ -54,7 +54,7 @@ type SyncSet struct {
 
 func NewSyncSet() *SyncSet {
 	return &SyncSet{
-		container:sync.Map{},
+		container: sync.Map{},
 	}
 }
 
@@ -72,4 +72,3 @@ func (s *SyncSet) Add(value interface{}) {
 func (s *SyncSet) Remove(value interface{}) {
 	s.container.Delete(value)
 }
-
