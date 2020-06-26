@@ -4,6 +4,16 @@
 
 package main
 
-func main() {
-	Init()
+type Conf struct {
+}
+
+func Init() *Conf {
+	n := new(Conf)
+	return n
+}
+
+func (n *Conf) Start() {
+}
+
+func (n *Conf) initDiscovery() {
 }
