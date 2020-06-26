@@ -40,11 +40,11 @@ func (s *Set) Size() int {
 
 func (s *Set) ToSlice() []interface{} {
 	result := make([]interface{}, len(s.container))
-
+	
 	for v, _ := range s.container {
 		result = append(result, v)
 	}
-
+	
 	return result
 }
 

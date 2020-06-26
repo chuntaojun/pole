@@ -19,6 +19,7 @@ import (
 	"github.com/rsocket/rsocket-go/rx/flux"
 	"github.com/rsocket/rsocket-go/rx/mono"
 
+	"nacos-go/auth"
 	"nacos-go/pojo"
 )
 
@@ -29,68 +30,84 @@ var (
 type Dispatcher struct {
 	Label   string
 	lock    sync.Mutex
-	filters []func(payload payload.Payload) error
+	filters []func(req RSocketRequest) error
 
-	reqRespHandler map[int32]struct {
+	reqRespHandler map[string]struct {
 		supplier func() proto.Message
 		handler  func(payload payload.Payload, req proto.Message, sink mono.Sink)
+		op       auth.OperationType
 	}
-	reqChannelHandler map[int32]struct {
+	reqChannelHandler map[string]struct {
 		supplier func() proto.Message
 		handler  func(payload payload.Payload, req proto.Message, sink flux.Sink)
+		op       auth.OperationType
 	}
 }
 
 func NewDispatcher(label string) *Dispatcher {
 	return &Dispatcher{
 		Label: label,
-		reqRespHandler: make(map[int32]struct {
+		reqRespHandler: make(map[string]struct {
 			supplier func() proto.Message
 			handler  func(payload payload.Payload, req proto.Message, sink mono.Sink)
+			op       auth.OperationType
 		}),
-		reqChannelHandler: make(map[int32]struct {
+		reqChannelHandler: make(map[string]struct {
 			supplier func() proto.Message
 			handler  func(payload payload.Payload, req proto.Message, sink flux.Sink)
+			op       auth.OperationType
 		}),
 	}
 }
 
-func (r *Dispatcher) RegisterFilter(chain ...func(payload payload.Payload) error) {
+type RSocketRequest struct {
+	Op  auth.OperationType
+	Msg payload.Payload
+	Req *pojo.GrpcRequest
+}
+
+func (r *Dispatcher) RegisterFilter(chain ...func(req RSocketRequest) error) {
 	r.filters = append(r.filters, chain...)
 }
 
 func (r *Dispatcher) CreateRequestResponseSocket() rsocket.OptAbstractSocket {
 	return rsocket.RequestResponse(func(msg payload.Payload) mono.Mono {
-		for _, filter := range r.filters {
-			if err := filter(msg); err != nil {
-				return mono.Error(err)
-			}
-		}
 		body := msg.Data()
-		req := &pojo.GrpcRequest{}
-		err := proto.Unmarshal(body, req)
+		gRPCRep := &pojo.GrpcRequest{}
+		err := proto.Unmarshal(body, gRPCRep)
 		if err != nil {
 			return mono.Error(err)
 		}
-		return mono.Create(func(ctx context.Context, sink mono.Sink) {
-			wrap, ok := r.reqRespHandler[req.GetLabel()]
-			any := req.GetBody()
-			pb := wrap.supplier()
 
-			err := ptypes.UnmarshalAny(any, pb)
+		if wrap, ok := r.reqRespHandler[gRPCRep.GetLabel()]; ok {
+			req := RSocketRequest{
+				Op:  wrap.op,
+				Msg: msg,
+				Req: gRPCRep,
+			}
 
-			if err != nil {
-				sink.Error(err)
-			} else {
-				if ok {
-					wrap.handler(msg, pb, sink)
-				} else {
-					sink.Error(ErrorNotImplement)
+			for _, filter := range r.filters {
+				if err := filter(req); err != nil {
+					return mono.Error(err)
 				}
 			}
-		}).DoOnError(func(e error) {
-			fmt.Printf("an exception occurred while processing the request %s\n", err)
-		})
+
+			return mono.Create(func(ctx context.Context, sink mono.Sink) {
+				any := gRPCRep.GetBody()
+				pb := wrap.supplier()
+
+				err := ptypes.UnmarshalAny(any, pb)
+
+				if err != nil {
+					sink.Error(err)
+				} else {
+					wrap.handler(msg, pb, sink)
+				}
+			}).DoOnError(func(e error) {
+				fmt.Printf("an exception occurred while processing the request %s\n", err)
+			})
+		}
+		return mono.Error(ErrorNotImplement)
 	})
 }
 
@@ -99,33 +116,34 @@ func (r *Dispatcher) CreateRequestChannelSocket() rsocket.OptAbstractSocket {
 		return flux.Create(func(ctx context.Context, sink flux.Sink) {
 			msgs.(flux.Flux).SubscribeOn(scheduler.Elastic()).
 				DoOnNext(func(input payload.Payload) {
-					var err error
-					for _, filter := range r.filters {
-						e := filter(input)
-						if err == nil {
-							err = e
-						}
-					}
-
+					body := input.Data()
+					gRPCRep := &pojo.GrpcRequest{}
+					err := proto.Unmarshal(body, gRPCRep)
 					if err != nil {
-						sink.Error(err)
-					} else {
-						body := input.Data()
-						req := &pojo.GrpcRequest{}
-						err = proto.Unmarshal(body, req)
+						panic(err)
+					}
+					if wrap, ok := r.reqChannelHandler[gRPCRep.GetLabel()]; ok {
+						req := RSocketRequest{
+							Op:  wrap.op,
+							Msg: input,
+							Req: gRPCRep,
+						}
 
-						if err != nil {
-							sink.Error(err)
-						} else {
-							wrap, ok := r.reqChannelHandler[req.GetLabel()]
-							if ok {
-								wrap.handler(input, req.GetBody(), sink)
-							} else {
-								sink.Error(ErrorNotImplement)
+						hasError := false
+						for _, filter := range r.filters {
+							e := filter(req)
+							if e != nil {
+								hasError = true
+								sink.Error(e)
+								break
 							}
 						}
+						if !hasError {
+							wrap.handler(input, gRPCRep.GetBody(), sink)
+						}
+					} else {
+						sink.Error(ErrorNotImplement)
 					}
-
 				}).
 				DoOnError(func(e error) {
 					fmt.Printf("an exception occurred while processing the request %s\n", e)
@@ -135,7 +153,8 @@ func (r *Dispatcher) CreateRequestChannelSocket() rsocket.OptAbstractSocket {
 	})
 }
 
-func (r *Dispatcher) RegisterRequestResponseHandler(key int32, supplier func() proto.Message, handler func(input payload.Payload, req proto.Message, sink mono.Sink)) {
+func (r *Dispatcher) RegisterRequestResponseHandler(key string, op auth.OperationType, supplier func() proto.Message,
+	handler func(input payload.Payload, req proto.Message, sink mono.Sink)) {
 	defer func() {
 		r.lock.Unlock()
 		if err := recover(); err != nil {
@@ -150,10 +169,12 @@ func (r *Dispatcher) RegisterRequestResponseHandler(key int32, supplier func() p
 	r.reqRespHandler[key] = struct {
 		supplier func() proto.Message
 		handler  func(payload payload.Payload, req proto.Message, sink mono.Sink)
-	}{supplier: supplier, handler: handler}
+		op       auth.OperationType
+	}{supplier: supplier, handler: handler, op: op}
 }
 
-func (r *Dispatcher) RegisterRequestChannelHandler(key int32, supplier func() proto.Message, handler func(input payload.Payload, req proto.Message, sink flux.Sink)) {
+func (r *Dispatcher) RegisterRequestChannelHandler(key string, op auth.OperationType, supplier func() proto.Message,
+	handler func(input payload.Payload, req proto.Message, sink flux.Sink)) {
 	defer r.lock.Unlock()
 	r.lock.Lock()
 
@@ -163,5 +184,6 @@ func (r *Dispatcher) RegisterRequestChannelHandler(key int32, supplier func() pr
 	r.reqChannelHandler[key] = struct {
 		supplier func() proto.Message
 		handler  func(payload payload.Payload, req proto.Message, sink flux.Sink)
-	}{supplier: supplier, handler: handler}
+		op       auth.OperationType
+	}{supplier: supplier, handler: handler, op: op}
 }

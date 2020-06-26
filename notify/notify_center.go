@@ -14,6 +14,14 @@ import (
 	"nacos-go/utils"
 )
 
+var (
+	ErrorEventNotSupport     = errors.New("this event not support, just support notify/notify_center.Event or notify/notify_center.SlowEvent")
+	ErrorEventNotRegister    = errors.New("the event was not registered")
+	ErrorEventRegister       = errors.New("register event publisher failed")
+	ErrorWrongSubscriberType = errors.New("wrong subscriber type")
+	ErrorAddSubscriber       = errors.New("add subscriber failed")
+)
+
 type void struct{}
 
 var member void
@@ -84,12 +92,12 @@ func RegisterPublisher(event Event, ringBufferSize int64) error {
 			return nil
 		}
 
-		return errors.New("register event publisher failed")
+		return ErrorEventRegister
 	case SlowEvent:
 		return nil
 	default:
 		_ = t
-		return errors.New("this event not support, just support notify/notify_center.Event or notify/notify_center.SlowEvent")
+		return ErrorEventNotSupport
 	}
 }
 
@@ -100,13 +108,13 @@ func PublishEvent(event Event) (bool, error) {
 			p.(*Publisher).PublishEvent(event)
 			return true, nil
 		}
-		return false, errors.New("the event was not registered")
+		return false, ErrorEventNotRegister
 	case SlowEvent:
 		instance.sharePublisher.PublishEvent(event)
 		return true, nil
 	default:
 		_ = t
-		return false, errors.New("this event not support, just support notify/notify_center.Event or notify/notify_center.SlowEvent")
+		return false, ErrorEventNotSupport
 	}
 }
 
@@ -127,7 +135,7 @@ func RegisterSubscriber(s Subscriber) error {
 			instance.sharePublisher.AddSubscriber(s)
 			return nil
 		default:
-			return errors.New("wrong subscriber type")
+			return ErrorWrongSubscriberType
 		}
 
 	case MultiSubscriber:
@@ -149,7 +157,7 @@ func RegisterSubscriber(s Subscriber) error {
 		return nil
 	default:
 		_ = t
-		return errors.New("wrong subscriber type")
+		return ErrorWrongSubscriberType
 	}
 }
 
@@ -175,7 +183,7 @@ func DeregisterSubscriber(s Subscriber) error {
 		return nil
 	default:
 		_ = t
-		return errors.New("wrong subscriber type")
+		return ErrorWrongSubscriberType
 	}
 }
 
@@ -331,7 +339,7 @@ func (sp *SharePublisher) AddSubscriber(s Subscriber) {
 			set.(*utils.SyncSet).Add(s)
 			return
 		}
-		panic(fmt.Errorf("add subscriber failed"))
+		panic(ErrorAddSubscriber)
 	case MultiSubscriber:
 		for _, topic := range t.SubscribeTypes() {
 			switch t := topic.(type) {
@@ -354,7 +362,7 @@ func (sp *SharePublisher) RemoveSubscriber(s Subscriber) {
 			set.(*utils.SyncSet).Remove(s)
 			return
 		}
-		panic(fmt.Errorf("add subscriber failed"))
+		panic(ErrorAddSubscriber)
 	case MultiSubscriber:
 		for _, topic := range t.SubscribeTypes() {
 			if set, exist := sp.listeners.Load(topic.Name()); exist {

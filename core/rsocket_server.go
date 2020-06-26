@@ -34,8 +34,8 @@ func NewRsocketServer(label string, port int64, center *auth.SecurityCenter, ope
 		security:   center,
 	}
 
-	r.Dispatcher.RegisterFilter(func(payload payload.Payload) error {
-		metadata, ok := payload.Metadata()
+	r.Dispatcher.RegisterFilter(func(req transport.RSocketRequest) error {
+		metadata, ok := req.Msg.Metadata()
 		if ok {
 			var header map[string]string
 			err := json.Unmarshal(metadata, &header)
@@ -44,7 +44,7 @@ func NewRsocketServer(label string, port int64, center *auth.SecurityCenter, ope
 			}
 
 			if r.security != nil {
-				ok, err := r.security.Filter(header)
+				ok, err := r.security.HasPermission(header, req.Op)
 				if !ok {
 					return err
 				}
