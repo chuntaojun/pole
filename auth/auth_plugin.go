@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,11 +20,18 @@ import (
 type OperationType int
 
 var (
+	AdminName = "admin"
+
 	ReadOnly     OperationType = 0
 	WriteOnly    OperationType = 1
 	ReadAndWrite OperationType = 2
 
-	TokenNotExist = errors.New("token does not exist")
+	ErrorTokenNotExist = errors.New("token does not exist")
+	ErrorTokenExpire   = errors.New("this token already expire")
+
+	ErrorResourceNotFound  = errors.New("resource not found")
+	ErrorForbid            = errors.New("forbid access this resource")
+	ErrorOperateNotSupport = errors.New("this ops not support")
 )
 
 type User struct {
@@ -33,7 +41,7 @@ type User struct {
 	role     string
 }
 
-func (u User) GetId() int64 {
+func (u User) GetID() int64 {
 	return u.id
 }
 
@@ -69,62 +77,69 @@ type Token struct {
 type SecurityCenter struct {
 	ctx      context.Context
 	rL       sync.RWMutex
-	roleMap  map[string]Role
 	tL       sync.RWMutex
+	roleMap  map[string]Role
 	tokenMap map[string]Role
 }
 
 func CreateSecurityCenter(ctx context.Context) *SecurityCenter {
 	return &SecurityCenter{
-		ctx: ctx,
+		ctx:      ctx,
+		roleMap:  make(map[string]Role),
+		tokenMap: make(map[string]Role),
 	}
 }
 
 func (s *SecurityCenter) startRoleRefresh() {
-	utils.DoTickerSchedule(func() {
+	utils.DoTickerSchedule(s.ctx, func() {
 
-	}, time.Duration(30)*time.Second, s.ctx)
+	}, time.Duration(30)*time.Second)
 }
 
 func (s *SecurityCenter) startTokenRefresh() {
-	utils.DoTickerSchedule(func() {
+	utils.DoTickerSchedule(s.ctx, func() {
 
-	}, time.Duration(30)*time.Second, s.ctx)
+	}, time.Duration(30)*time.Second)
 }
 
-func (s *SecurityCenter) Filter(header map[string]string) (bool, error) {
+func (s *SecurityCenter) HasPermission(header map[string]string, op OperationType) (bool, error) {
 	token := header[constants.TokenKey]
 	resource := s.buildResource(header)
+	// Judge whether token exists
 	if role, exist := s.tokenMap[token]; exist {
-		return s.authFilter(token, resource, role.permissions.operation)
-	} else {
-		return false, TokenNotExist
+		return s.authFilter(resource, role, op)
 	}
+	return false, ErrorTokenNotExist
 }
 
-func (s *SecurityCenter) authFilter(token, resource string, operation OperationType) (bool, error) {
+func (s *SecurityCenter) authFilter(resource string, role Role, op OperationType) (bool, error) {
 	defer func() {
 		s.tL.RUnlock()
 	}()
-
 	s.tL.RLock()
 
-	v, exist := s.tokenMap[token]
-	if !exist {
-		return false, fmt.Errorf("this token alreay expire")
-	}
-
-	p := v.permissions
-	if strings.Compare(p.resource, resource) != 0 {
-		return false, fmt.Errorf("forbiden access this resource")
-	}
-
-	if operation == p.operation {
+	if strings.Compare(AdminName, role.roleName) == 0 {
 		return true, nil
 	}
 
-	return false, fmt.Errorf("forbiden operation this resource, it just allow %s", parseOperationName(p.operation))
+	// what permissions do I have to find this resource
+	p := role.permissions
+	reg := strings.ReplaceAll(p.resource, "*", ".*")
+	isOk, err := regexp.Match(reg, []byte(resource))
+	if err != nil {
+		return false, err
+	}
 
+	if !isOk {
+		return false, ErrorForbid
+	}
+
+	if op == p.operation {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("forbid %s this resource, it just allow %s", parseOperationName(op),
+		parseOperationName(p.operation))
 }
 
 func parseOperationName(ops OperationType) string {
@@ -136,17 +151,17 @@ func parseOperationName(ops OperationType) string {
 	case ReadAndWrite:
 		return "read and write"
 	default:
-		panic("this ops not support")
+		panic(ErrorOperateNotSupport)
 	}
 }
 
-// {namespace}@@{group}
+// {namespace}:{group}
 func (s *SecurityCenter) buildResource(header map[string]string) string {
-	namesapceId := header[constants.NamespaceId]
+	namespaceID := header[constants.NamespaceID]
 	group := header[constants.Group]
 	resource := ""
-	if namesapceId != "" {
-		resource += namesapceId
+	if namespaceID != "" {
+		resource += namespaceID
 	}
 	resource += ":"
 

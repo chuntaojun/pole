@@ -98,7 +98,7 @@ func (s *ServerClusterManager) Init(config *sys.Config) {
 		}
 	}()
 
-	s.self = utils.FindSelfIp()
+	s.self = utils.FindSelfIP()
 
 	utils.Runnable(func() error {
 		return notify.RegisterPublisher(&MemberChangeEvent{}, 64)

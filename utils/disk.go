@@ -27,7 +27,7 @@ func ReadFileAllLine(name string) []string {
 		l, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
-				return lines
+				break
 			}
 			panic(err)
 		}

@@ -9,21 +9,21 @@ import (
 	"strings"
 )
 
-func BuildHttpUrl(serverIp string, port int, path string) string {
+func BuildHttpUrl(serverIp, path string, port int) string {
 	if strings.HasPrefix(path, "/") {
 		return "http://" + serverIp + ":" + strconv.FormatInt(int64(port), 10) + path
 	}
 	return "http://" + serverIp + ":" + strconv.FormatInt(int64(port), 10) + "/" + path
 }
 
-func BuildHttpsUrl(serverIp string, port int, path string) string {
+func BuildHttpsUrl(serverIp, path string, port int) string {
 	if strings.HasPrefix(path, "/") {
 		return "https://" + serverIp + ":" + strconv.FormatInt(int64(port), 10) + path
 	}
 	return "https://" + serverIp + ":" + strconv.FormatInt(int64(port), 10) + "/" + path
 }
 
-func AnalyzeIpAndPort(address string) (string, int) {
+func AnalyzeIPAndPort(address string) (string, int) {
 	info := strings.Split(address, ":")
 	ip := strings.TrimSpace(info[0])
 	port, err := strconv.Atoi(strings.TrimSpace(info[1]))

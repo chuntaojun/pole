@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func DoTimerSchedule(work func(), delay time.Duration, supplier func() time.Duration, ctx context.Context) {
+func DoTimerSchedule(ctx context.Context, work func(), delay time.Duration, supplier func() time.Duration) {
 	go func() {
 		timer := time.NewTimer(delay)
 
@@ -27,7 +27,7 @@ func DoTimerSchedule(work func(), delay time.Duration, supplier func() time.Dura
 
 }
 
-func DoTickerSchedule(work func(), delay time.Duration, ctx context.Context) {
+func DoTickerSchedule(ctx context.Context, work func(), delay time.Duration) {
 	go func() {
 		ticker := time.NewTicker(delay)
 
