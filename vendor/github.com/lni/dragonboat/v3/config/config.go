@@ -1,0 +1,443 @@
+// Copyright 2017-2019 Lei Ni (nilei81@gmail.com) and other Dragonboat authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/*
+Package config contains functions and types used for managing dragonboat's
+configurations.
+*/
+package config
+
+import (
+	"crypto/tls"
+	"errors"
+	"path/filepath"
+	"time"
+
+	"github.com/lni/dragonboat/v3/internal/settings"
+	"github.com/lni/dragonboat/v3/internal/vfs"
+	"github.com/lni/dragonboat/v3/logger"
+	"github.com/lni/dragonboat/v3/raftio"
+	pb "github.com/lni/dragonboat/v3/raftpb"
+	"github.com/lni/goutils/netutil"
+	"github.com/lni/goutils/stringutil"
+)
+
+var (
+	plog = logger.GetLogger("config")
+)
+
+// RaftRPCFactoryFunc is the factory function that creates the Raft RPC module
+// instance for exchanging Raft messages between NodeHosts.
+type RaftRPCFactoryFunc func(NodeHostConfig,
+	raftio.RequestHandler, raftio.IChunkHandler) raftio.IRaftRPC
+
+// LogDBFactoryFunc is the factory function that creates NodeHost's persistent
+// storage module known as Log DB.
+type LogDBFactoryFunc func(dirs []string,
+	lowLatencyDirs []string) (raftio.ILogDB, error)
+
+// CompressionType is the type of the compression.
+type CompressionType = pb.CompressionType
+
+// IFS is the filesystem interface used by tests.
+type IFS = vfs.IFS
+
+const (
+	// NoCompression is the CompressionType value used to indicate not to use
+	// any compression.
+	NoCompression CompressionType = pb.NoCompression
+	// Snappy is the CompressionType value used to indicate that google snappy
+	// is used for data compression.
+	Snappy CompressionType = pb.Snappy
+)
+
+// Config is used to configure Raft nodes.
+type Config struct {
+	// NodeID is a non-zero value used to identify a node within a Raft cluster.
+	NodeID uint64
+	// ClusterID is the unique value used to identify a Raft cluster.
+	ClusterID uint64
+	// CheckQuorum specifies whether the leader node should periodically check
+	// non-leader node status and step down to become a follower node when it no
+	// longer has the quorum.
+	CheckQuorum bool
+	// ElectionRTT is the minimum number of message RTT between elections. Message
+	// RTT is defined by NodeHostConfig.RTTMillisecond. The Raft paper suggests it
+	// to be a magnitude greater than HeartbeatRTT, which is the interval between
+	// two heartbeats. In Raft, the actual interval between elections is
+	// randomized to be between ElectionRTT and 2 * ElectionRTT.
+	//
+	// As an example, assuming NodeHostConfig.RTTMillisecond is 100 millisecond,
+	// to set the election interval to be 1 second, then ElectionRTT should be set
+	// to 10.
+	//
+	// When CheckQuorum is enabled, ElectionRTT also defines the interval for
+	// checking leader quorum.
+	ElectionRTT uint64
+	// HeartbeatRTT is the number of message RTT between heartbeats. Message
+	// RTT is defined by NodeHostConfig.RTTMillisecond. The Raft paper suggest the
+	// heartbeat interval to be close to the average RTT between nodes.
+	//
+	// As an example, assuming NodeHostConfig.RTTMillisecond is 100 millisecond,
+	// to set the heartbeat interval to be every 200 milliseconds, then
+	// HeartbeatRTT should be set to 2.
+	HeartbeatRTT uint64
+	// SnapshotEntries defines how often the state machine should be snapshotted
+	// automcatically. It is defined in terms of the number of applied Raft log
+	// entries. SnapshotEntries can be set to 0 to disable such automatic
+	// snapshotting.
+	//
+	// When SnapshotEntries is set to N, it means a snapshot is created for
+	// roughly every N applied Raft log entries (proposals). This also implies
+	// that sending N log entries to a follower is more expensive than sending a
+	// snapshot.
+	//
+	// Once a snapshot is generated, Raft log entries covered by the new snapshot
+	// can be compacted. This involves two steps, redundant log entries are first
+	// marked as deleted, then they are physically removed from the underlying
+	// storage when a LogDB compaction is issued at a later stage. See the godoc
+	// on CompactionOverhead for details on what log entries are actually removed
+	// and compacted after generating a snapshot.
+	//
+	// Once automatic snapshotting is disabled by setting the SnapshotEntries
+	// field to 0, users can still use NodeHost's RequestSnapshot or
+	// SyncRequestSnapshot methods to manually request snapshots.
+	SnapshotEntries uint64
+	// CompactionOverhead defines the number of most recent entries to keep after
+	// each Raft log compaction. Raft log compaction is performance automatically
+	// every time when a snapshot is created.
+	//
+	// For example, when a snapshot is created at let's say index 10,000, then all
+	// Raft log entries with index <= 10,000 can be removed from that node as they
+	// have already been covered by the created snapshot image. This frees up the
+	// maximum storage space but comes at the cost that the full snapshot will
+	// have to be sent to the follower if the follower requires any Raft log entry
+	// at index <= 10,000. When CompactionOverhead is set to say 500, Dragonboat
+	// then compacts the Raft log up to index 9,500 and keeps Raft log entries
+	// between index (9,500, 1,0000]. As a result, the node can still replicate
+	// Raft log entries between index (9,500, 1,0000] to other peers and only fall
+	// back to stream the full snapshot if any Raft log entry with index <= 9,500
+	// is required to be replicated.
+	CompactionOverhead uint64
+	// OrderedConfigChange determines whether Raft membership change is enforced
+	// with ordered config change ID.
+	OrderedConfigChange bool
+	// MaxInMemLogSize is the target size in bytes allowed for storing in memory
+	// Raft logs on each Raft node. In memory Raft logs are the ones that have
+	// not been applied yet.
+	// MaxInMemLogSize is a target value implemented to prevent unbounded memory
+	// growth, it is not for precisely limiting the exact memory usage.
+	// When MaxInMemLogSize is 0, the target is set to math.MaxUint64. When
+	// MaxInMemLogSize is set and the target is reached, error will be returned
+	// when clients try to make new proposals.
+	// MaxInMemLogSize is recommended to be significantly larger than the biggest
+	// proposal you are going to use.
+	MaxInMemLogSize uint64
+	// SnapshotCompressionType is the compression type to use for compressing
+	// generated snapshot data. No compression is used by default.
+	SnapshotCompressionType CompressionType
+	// EntryCompressionType is the compression type to use for compressing the
+	// payload of user proposals. When Snappy is used, the maximum proposal
+	// payload allowed is roughly limited to 3.42GBytes.
+	EntryCompressionType CompressionType
+	// DisableAutoCompactions disables auto compaction used for reclaiming Raft
+	// entry storage spaces. By default, compaction is issued every time when
+	// a snapshot is captured, this helps to reclaim disk spaces as soon as
+	// possible at the cost of higher IO overhead. Users can disable such auto
+	// compactions and use NodeHost.RequestCompaction to manually request such
+	// compactions when necessary.
+	DisableAutoCompactions bool
+	// IsObserver indicates whether this is an observer Raft node without voting
+	// power. Described as non-voting members in the section 4.2.1 of Diego
+	// Ongaro's thesis, observer nodes are usually used to allow a new node to
+	// join the cluster and catch up with other existing ndoes without impacting
+	// the availability. Extra observer nodes can also be introduced to serve
+	// read-only requests without affecting system write throughput.
+	//
+	// Observer support is currently experimental.
+	IsObserver bool
+	// IsWitness indicates whether this is a witness Raft node without actual log
+	// replication and do not have state machine. It is mentioned in the section
+	// 11.7.2 of Diego Ongaro's thesis.
+	//
+	// Witness support is currently experimental.
+	IsWitness bool
+	// Quiesce specifies whether to let the Raft cluster enter quiesce mode when
+	// there is no cluster activity. Clusters in quiesce mode do not exchange
+	// heartbeat messages to minimize bandwidth consumption.
+	//
+	// Quiesce support is currently experimental.
+	Quiesce bool
+}
+
+// Validate validates the Config instance and return an error when any member
+// field is considered as invalid.
+func (c *Config) Validate() error {
+	if c.NodeID == 0 {
+		return errors.New("invalid NodeID, it must be >= 1")
+	}
+	if c.HeartbeatRTT == 0 {
+		return errors.New("HeartbeatRTT must be > 0")
+	}
+	if c.ElectionRTT == 0 {
+		return errors.New("ElectionRTT must be > 0")
+	}
+	if c.ElectionRTT <= 2*c.HeartbeatRTT {
+		return errors.New("invalid election rtt")
+	}
+	if c.ElectionRTT < 10*c.HeartbeatRTT {
+		plog.Warningf("ElectionRTT is not a magnitude larger than HeartbeatRTT")
+	}
+	if c.MaxInMemLogSize > 0 &&
+		c.MaxInMemLogSize < settings.EntryNonCmdFieldsSize+1 {
+		return errors.New("MaxInMemLogSize is too small")
+	}
+	if c.SnapshotCompressionType != Snappy &&
+		c.SnapshotCompressionType != NoCompression {
+		return errors.New("Unknown compression type")
+	}
+	if c.EntryCompressionType != Snappy &&
+		c.EntryCompressionType != NoCompression {
+		return errors.New("Unknown compression type")
+	}
+	if c.IsWitness && c.SnapshotEntries > 0 {
+		return errors.New("witness node can not take snapshot")
+	}
+	if c.IsWitness && c.IsObserver {
+		return errors.New("witness node can not be an observer")
+	}
+	return nil
+}
+
+// NodeHostConfig is the configuration used to configure NodeHost instances.
+type NodeHostConfig struct {
+	// DeploymentID is used to determine whether two NodeHost instances belong to
+	// the same deployment and thus allowed to communicate with each other. This
+	// helps to prvent accidentially misconfigured NodeHost instances to cause
+	// data corruption errors by sending out of context messages to unrelated
+	// Raft nodes.
+	// For a particular dragonboat based application, you can set DeploymentID
+	// to the same uint64 value on all production NodeHost instances, then use
+	// different DeploymentID values on your staging and dev environment. It is
+	// also recommended to use different DeploymentID values for different
+	// dragonboat based applications.
+	// When not set, the default value 0 will be used as the deployment ID and
+	// thus allowing all NodeHost instances with deployment ID 0 to communicate
+	// with each other.
+	DeploymentID uint64
+	// WALDir is the directory used for storing the WAL of Raft entries. It is
+	// recommended to use low latency storage such as NVME SSD with power loss
+	// protection to store such WAL data. Leave WALDir to have zero value will
+	// have everything stored in NodeHostDir.
+	WALDir string
+	// NodeHostDir is where everything else is stored.
+	NodeHostDir string
+	// RTTMillisecond defines the average Rround Trip Time (RTT) in milliseconds
+	// between two NodeHost instances. Such a RTT interval is internally used as
+	// a logical clock tick, Raft heartbeat and election intervals are both
+	// defined in term of how many such RTT intervals.
+	// Note that RTTMillisecond is the combined delays between two NodeHost
+	// instances including all delays caused by network transmission, delays
+	// caused by NodeHost queuing and processing. As an example, when fully
+	// loaded, the average Rround Trip Time between two of our NodeHost instances
+	// used for benchmarking purposes is up to 500 microseconds when the ping time
+	// between them is 100 microseconds. Set RTTMillisecond to 1 when it is less
+	// than 1 million in your environment.
+	RTTMillisecond uint64
+	// RaftAddress is a hostname:port or IP:port address used by the Raft RPC
+	// module for exchanging Raft messages and snapshots. This is also the
+	// identifier for a NodeHost instance. RaftAddress should be set to the
+	// public address that can be accessed from remote NodeHost instances.
+	RaftAddress string
+	// ListenAddress is a hostname:port or IP:port address used by the Raft RPC
+	// module to listen on for Raft message and snapshots. When the ListenAddress
+	// field is not set, The Raft RPC module listens on RaftAddress. If 0.0.0.0
+	// is specified as the IP of the ListenAddress, Dragonboat listens to the
+	// specified port on all interfaces. When hostname or domain name is
+	// specified, it is locally resolved to IP addresses first and Dragonboat
+	// listens to all resolved IP addresses.
+	ListenAddress string
+	// MutualTLS defines whether to use mutual TLS for authenticating servers
+	// and clients. Insecure communication is used when MutualTLS is set to
+	// False.
+	// See https://github.com/lni/dragonboat/wiki/TLS-in-Dragonboat for more
+	// details on how to use Mutual TLS.
+	MutualTLS bool
+	// CAFile is the path of the CA certificate file. This field is ignored when
+	// MutualTLS is false.
+	CAFile string
+	// CertFile is the path of the node certificate file. This field is ignored
+	// when MutualTLS is false.
+	CertFile string
+	// KeyFile is the path of the node key file. This field is ignored when
+	// MutualTLS is false.
+	KeyFile string
+	// MaxSendQueueSize is the maximum size in bytes of each send queue.
+	// Once the maximum size is reached, further replication messages will be
+	// dropped to restrict memory usage. When set to 0, it means the send queue
+	// size is unlimited.
+	MaxSendQueueSize uint64
+	// MaxReceiveQueueSize is the maximum size in bytes of each receive queue.
+	// Once the maximum size is reached, further replication messages will be
+	// dropped to restrict memory usage. When set to 0, it means the queue size
+	// is unlimited.
+	MaxReceiveQueueSize uint64
+	// LogDBFactory is the factory function used for creating the Log DB instance
+	// used by NodeHost. The default zero value causes the default built-in RocksDB
+	// based Log DB implementation to be used.
+	LogDBFactory LogDBFactoryFunc
+	// RaftRPCFactory is the factory function used for creating the Raft RPC
+	// instance for exchanging Raft message between NodeHost instances. The default
+	// zero value causes the built-in TCP based RPC module to be used.
+	RaftRPCFactory RaftRPCFactoryFunc
+	// EnableMetrics determines whether health metrics in Prometheus format should
+	// be enabled.
+	EnableMetrics bool
+	// RaftEventListener is the listener for Raft events, such as Raft leadership
+	// change, exposed to user space. NodeHost uses a single dedicated goroutine
+	// to invoke all RaftEventListener methods one by one, CPU intensive or IO
+	// related procedures that can cause long delays should be offloaded to worker
+	// goroutines managed by users. See the raftio.IRaftEventListener definition
+	// for more details.
+	RaftEventListener raftio.IRaftEventListener
+	// MaxSnapshotSendBytesPerSecond defines how much snapshot data can be sent
+	// every second for all Raft clusters managed by the NodeHost instance.
+	// The default value 0 means there is no limit set for snapshot streaming.
+	MaxSnapshotSendBytesPerSecond uint64
+	// MaxSnapshotRecvBytesPerSecond defines how much snapshot data can be
+	// received each second for all Raft clusters managed by the NodeHost instance.
+	// The default value 0 means there is no limit for receiving snapshot data.
+	MaxSnapshotRecvBytesPerSecond uint64
+	// FS is the filesystem used by tests. Dragonboat applications are not
+	// required to explicitly set this field.
+	FS IFS
+	// SystemEventsListener allows users to be notified for system events such
+	// as snapshot creation, log compaction and snapshot streaming. It is usually
+	// used for testing purposes or for other advanced usages, Dragonboat
+	// applications are not required to explicitly set this field.
+	SystemEventListener raftio.ISystemEventListener
+	// SystemTickerPrecision is the precision of the system ticker. This value is
+	// usually set in tests. Dragonboat applications are not required to
+	// explicitly set this field.
+	SystemTickerPrecision time.Duration
+}
+
+// Validate validates the NodeHostConfig instance and return an error when
+// the configuration is considered as invalid.
+func (c *NodeHostConfig) Validate() error {
+	if c.RTTMillisecond == 0 {
+		return errors.New("invalid RTTMillisecond")
+	}
+	if len(c.NodeHostDir) == 0 {
+		return errors.New("NodeHostConfig.NodeHostDir is empty")
+	}
+	if !stringutil.IsValidAddress(c.RaftAddress) {
+		return errors.New("invalid NodeHost address")
+	}
+	if len(c.ListenAddress) > 0 && !stringutil.IsValidAddress(c.ListenAddress) {
+		return errors.New("invalid ListenAddress")
+	}
+	if !c.MutualTLS &&
+		(len(c.CAFile) > 0 || len(c.CertFile) > 0 || len(c.KeyFile) > 0) {
+		plog.Warningf("CAFile/CertFile/KeyFile specified when MutualTLS is disabled")
+	}
+	if c.MutualTLS {
+		if len(c.CAFile) == 0 {
+			return errors.New("CA file not specified")
+		}
+		if len(c.CertFile) == 0 {
+			return errors.New("cert file not specified")
+		}
+		if len(c.KeyFile) == 0 {
+			return errors.New("key file not specified")
+		}
+	}
+	if c.MaxSendQueueSize > 0 &&
+		c.MaxSendQueueSize < settings.EntryNonCmdFieldsSize+1 {
+		return errors.New("MaxSendQueueSize value is too small")
+	}
+	if c.MaxReceiveQueueSize > 0 &&
+		c.MaxReceiveQueueSize < settings.EntryNonCmdFieldsSize+1 {
+		return errors.New("MaxReceiveSize value is too small")
+	}
+	return nil
+}
+
+// Prepare sets the default value for NodeHostConfig.
+func (c *NodeHostConfig) Prepare() error {
+	var err error
+	c.NodeHostDir, err = filepath.Abs(c.NodeHostDir)
+	if err != nil {
+		return err
+	}
+	if len(c.WALDir) > 0 {
+		c.WALDir, err = filepath.Abs(c.WALDir)
+		if err != nil {
+			return err
+		}
+	}
+	if c.FS == nil {
+		c.FS = vfs.DefaultFS
+	}
+	if c.SystemTickerPrecision == 0 {
+		plog.Infof("system ticker precision is set to 1ms (default)")
+		c.SystemTickerPrecision = time.Millisecond
+	}
+	return nil
+}
+
+// GetListenAddress returns the actual address the RPC module is going to
+// listen on.
+func (c *NodeHostConfig) GetListenAddress() string {
+	if len(c.ListenAddress) > 0 {
+		return c.ListenAddress
+	}
+	return c.RaftAddress
+}
+
+// GetServerTLSConfig returns the server tls.Config instance based on the
+// TLS settings in NodeHostConfig.
+func (c *NodeHostConfig) GetServerTLSConfig() (*tls.Config, error) {
+	if c.MutualTLS {
+		return netutil.GetServerTLSConfig(c.CAFile, c.CertFile, c.KeyFile)
+	}
+	return nil, nil
+}
+
+// GetClientTLSConfig returns the client tls.Config instance for the specified
+// target based on the TLS settings in NodeHostConfig.
+func (c *NodeHostConfig) GetClientTLSConfig(target string) (*tls.Config, error) {
+	if c.MutualTLS {
+		tlsConfig, err := netutil.GetClientTLSConfig("",
+			c.CAFile, c.CertFile, c.KeyFile)
+		if err != nil {
+			return nil, err
+		}
+		host, err := netutil.GetHost(target)
+		if err != nil {
+			return nil, err
+		}
+		return &tls.Config{
+			ServerName:   host,
+			Certificates: tlsConfig.Certificates,
+			RootCAs:      tlsConfig.RootCAs,
+		}, nil
+	}
+	return nil, nil
+}
+
+// IsValidAddress returns whether the input address is valid.
+func IsValidAddress(addr string) bool {
+	return stringutil.IsValidAddress(addr)
+}

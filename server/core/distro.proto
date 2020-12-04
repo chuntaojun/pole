@@ -1,0 +1,24 @@
+// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+syntax = "proto3";
+
+package core;
+
+// enpity for distro
+
+message Checksum {
+  string group = 1;
+  map<string, string> checksum = 2;
+}
+
+message Sync {
+  string group = 1;
+  map<string, bytes> body = 2;
+}
+
+message Push {
+  string group = 1;
+  map<string, bytes> body = 2;
+}

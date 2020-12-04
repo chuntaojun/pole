@@ -1,0 +1,61 @@
+// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+syntax = "proto3";
+
+package pojo;
+
+// enpity for discovery
+
+message Service {
+  string serviceName = 1;
+  string group = 2;
+  map<string, string> metadata = 3;
+  double protectThreshold = 5;
+  string selector = 6;
+}
+
+enum CheckType {
+  TCP = 0;
+  HTTP = 1;
+  CUSTOMER = 2;
+}
+
+message Cluster {
+  string serviceName = 1;
+  string group = 2;
+  string clusterName = 3;
+  CheckType checkType = 4;
+  map<string, string> metadata = 5;
+}
+
+message Instance {
+  string serviceName = 1;
+  string group = 2;
+  string ip = 3;
+  int64 port = 4;
+  string clusterName = 5;
+  double weight = 6;
+  map<string, string> metadata = 7;
+  bool ephemeral = 8;
+  bool enabled = 9;
+}
+
+// enpity for config
+
+enum FileType {
+  Yaml = 0;
+  Json = 1;
+  Properties = 2;
+  Toml = 3;
+  Xml = 4;
+  Conf = 5;
+}
+
+message ConfigFile {
+  string group = 1;
+  string fileName = 2;
+  FileType fileType = 3;
+  string content = 4;
+}

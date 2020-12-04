@@ -1,0 +1,17 @@
+language: go
+sudo: required
+
+go:
+  - 1.13.x
+  - 1.14.x
+
+notifications:
+  on_success: never
+  on_failure: never
+
+script:
+  - GO111MODULE=on DRAGONBOAT_LOGDB=pebble make travis-ci-test
+  - GO111MODULE=on go test -tags "dragonboat_pebble_test" -v -coverprofile=coverage.txt -covermode=atomic
+
+after_success:
+  - bash <(curl -s https://codecov.io/bash)

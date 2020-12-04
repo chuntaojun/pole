@@ -1,0 +1,1551 @@
+// Copyright 2017-2019 Lei Ni (nilei81@gmail.com) and other Dragonboat authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package dragonboat
+
+import (
+	"sync"
+	"sync/atomic"
+
+	"github.com/lni/goutils/logutil"
+	"github.com/lni/goutils/stringutil"
+	"github.com/lni/goutils/syncutil"
+
+	"github.com/lni/dragonboat/v3/client"
+	"github.com/lni/dragonboat/v3/config"
+	"github.com/lni/dragonboat/v3/internal/fileutil"
+	"github.com/lni/dragonboat/v3/internal/logdb"
+	"github.com/lni/dragonboat/v3/internal/raft"
+	"github.com/lni/dragonboat/v3/internal/rsm"
+	"github.com/lni/dragonboat/v3/internal/server"
+	"github.com/lni/dragonboat/v3/internal/settings"
+	"github.com/lni/dragonboat/v3/internal/tests"
+	"github.com/lni/dragonboat/v3/internal/transport"
+	"github.com/lni/dragonboat/v3/raftio"
+	pb "github.com/lni/dragonboat/v3/raftpb"
+	sm "github.com/lni/dragonboat/v3/statemachine"
+)
+
+var (
+	incomingProposalsMaxLen = settings.Soft.IncomingProposalQueueLength
+	incomingReadIndexMaxLen = settings.Soft.IncomingReadIndexQueueLength
+	syncTaskInterval        = settings.Soft.SyncTaskInterval
+	lazyFreeCycle           = settings.Soft.LazyFreeCycle
+)
+
+type engine interface {
+	setNodeReady(clusterID uint64)
+	setTaskReady(clusterID uint64)
+	setStreamReady(clusterID uint64)
+	setRequestedSnapshotReady(clusterID uint64)
+	setAvailableSnapshotReady(clusterID uint64)
+}
+
+var _ rsm.INode = &node{}
+
+type node struct {
+	readReqCount          uint64
+	leaderID              uint64
+	instanceID            uint64
+	raftAddress           string
+	config                config.Config
+	confChangeC           <-chan configChangeRequest
+	snapshotC             <-chan rsm.SSRequest
+	taskQ                 *rsm.TaskQueue
+	mq                    *server.MessageQueue
+	smAppliedIndex        uint64
+	confirmedIndex        uint64
+	pushedIndex           uint64
+	engine                engine
+	getStreamConnection   func(uint64, uint64) pb.IChunkSink
+	handleSnapshotStatus  func(uint64, uint64, bool)
+	sendRaftMessage       func(pb.Message)
+	sm                    *rsm.StateMachine
+	smType                pb.StateMachineType
+	incomingProposals     *entryQueue
+	incomingReadIndexes   *readIndexQueue
+	pendingProposals      *pendingProposal
+	pendingReadIndexes    *pendingReadIndex
+	pendingConfigChange   *pendingConfigChange
+	pendingSnapshot       *pendingSnapshot
+	pendingLeaderTransfer *pendingLeaderTransfer
+	raftMu                sync.Mutex
+	p                     *raft.Peer
+	logreader             *logdb.LogReader
+	logdb                 raftio.ILogDB
+	snapshotter           *snapshotter
+	nodeRegistry          transport.INodeRegistry
+	stopc                 chan struct{}
+	clusterInfo           atomic.Value
+	tickCount             uint64
+	expireNotified        uint64
+	tickMillisecond       uint64
+	syncTask              *task
+	rateLimited           bool
+	new                   bool
+	closeOnce             sync.Once
+	ss                    *snapshotState
+	snapshotLock          *syncutil.Lock
+	raftEvents            *raftEventListener
+	sysEvents             *sysEventListener
+	initializedMu         struct {
+		sync.Mutex
+		initialized bool
+	}
+	quiesceManager
+}
+
+var instanceID uint64
+
+func newNode(raftAddress string,
+	peers map[uint64]string,
+	initialMember bool,
+	snapshotter *snapshotter,
+	dataStore rsm.IManagedStateMachine,
+	smType pb.StateMachineType,
+	engine engine,
+	liQueue *leaderInfoQueue,
+	getStreamConnection func(uint64, uint64) pb.IChunkSink,
+	handleSnapshotStatus func(uint64, uint64, bool),
+	sendMessage func(pb.Message),
+	mq *server.MessageQueue,
+	stopc chan struct{},
+	nodeRegistry transport.INodeRegistry,
+	requestStatePool *sync.Pool,
+	config config.Config,
+	useMetrics bool,
+	tickMillisecond uint64,
+	ldb raftio.ILogDB,
+	sysEvents *sysEventListener) (*node, error) {
+	proposals := newEntryQueue(incomingProposalsMaxLen, lazyFreeCycle)
+	readIndexes := newReadIndexQueue(incomingReadIndexMaxLen)
+	confChangeC := make(chan configChangeRequest, 1)
+	snapshotC := make(chan rsm.SSRequest, 1)
+	pp := newPendingProposal(config, requestStatePool, proposals, raftAddress)
+	leaderTransfer := newPendingLeaderTransfer()
+	pscr := newPendingReadIndex(requestStatePool, readIndexes)
+	pcc := newPendingConfigChange(confChangeC)
+	ps := newPendingSnapshot(snapshotC)
+	lr := logdb.NewLogReader(config.ClusterID, config.NodeID, ldb)
+	rn := &node{
+		instanceID:            atomic.AddUint64(&instanceID, 1),
+		tickMillisecond:       tickMillisecond,
+		config:                config,
+		raftAddress:           raftAddress,
+		incomingProposals:     proposals,
+		incomingReadIndexes:   readIndexes,
+		confChangeC:           confChangeC,
+		snapshotC:             snapshotC,
+		engine:                engine,
+		getStreamConnection:   getStreamConnection,
+		handleSnapshotStatus:  handleSnapshotStatus,
+		stopc:                 stopc,
+		pendingProposals:      pp,
+		pendingReadIndexes:    pscr,
+		pendingConfigChange:   pcc,
+		pendingSnapshot:       ps,
+		pendingLeaderTransfer: leaderTransfer,
+		nodeRegistry:          nodeRegistry,
+		snapshotter:           snapshotter,
+		logreader:             lr,
+		sendRaftMessage:       sendMessage,
+		mq:                    mq,
+		logdb:                 ldb,
+		snapshotLock:          syncutil.NewLock(),
+		ss:                    &snapshotState{},
+		syncTask:              newTask(syncTaskInterval),
+		smType:                smType,
+		sysEvents:             sysEvents,
+		quiesceManager: quiesceManager{
+			electionTick: config.ElectionRTT * 2,
+			enabled:      config.Quiesce,
+			clusterID:    config.ClusterID,
+			nodeID:       config.NodeID,
+		},
+	}
+	sm := rsm.NewStateMachine(dataStore, snapshotter, config, rn, snapshotter.fs)
+	rn.taskQ = sm.TaskQ()
+	rn.sm = sm
+	rn.raftEvents = newRaftEventListener(config.ClusterID,
+		config.NodeID, &rn.leaderID, useMetrics, liQueue)
+	new, err := rn.startRaft(config, lr, peers, initialMember)
+	if err != nil {
+		return nil, err
+	}
+	rn.new = new
+	return rn, nil
+}
+
+func (n *node) NodeID() uint64 {
+	return n.nodeID
+}
+
+func (n *node) ClusterID() uint64 {
+	return n.clusterID
+}
+
+func (n *node) ShouldStop() <-chan struct{} {
+	return n.stopc
+}
+
+func (n *node) NodeReady() {
+	n.engine.setNodeReady(n.clusterID)
+}
+
+func (n *node) ApplyUpdate(entry pb.Entry,
+	result sm.Result, rejected bool, ignored bool, notifyReadClient bool) {
+	if n.isWitness() {
+		return
+	}
+	if notifyReadClient {
+		n.pendingReadIndexes.applied(entry.Index)
+	}
+	if !ignored {
+		if entry.Key == 0 {
+			panic("key is 0")
+		}
+		n.pendingProposals.applied(entry.ClientID,
+			entry.SeriesID, entry.Key, result, rejected)
+	}
+}
+
+func (n *node) ApplyConfigChange(cc pb.ConfigChange,
+	key uint64, rejected bool) {
+	n.raftMu.Lock()
+	defer n.raftMu.Unlock()
+	if !rejected {
+		n.applyConfigChange(cc)
+	}
+	n.configChangeProcessed(key, rejected)
+}
+
+func (n *node) applyConfigChange(cc pb.ConfigChange) {
+	n.p.ApplyConfigChange(cc)
+	switch cc.Type {
+	case pb.AddNode:
+		n.nodeRegistry.AddNode(n.clusterID, cc.NodeID, string(cc.Address))
+	case pb.AddObserver:
+		n.nodeRegistry.AddNode(n.clusterID, cc.NodeID, string(cc.Address))
+	case pb.AddWitness:
+		n.nodeRegistry.AddNode(n.clusterID, cc.NodeID, string(cc.Address))
+	case pb.RemoveNode:
+		if cc.NodeID == n.nodeID {
+			plog.Infof("%s applied ConfChange Remove for itself", n.id())
+			n.nodeRegistry.RemoveCluster(n.clusterID)
+			n.requestRemoval()
+		} else {
+			n.nodeRegistry.RemoveNode(n.clusterID, cc.NodeID)
+		}
+	default:
+		panic("unknown config change type")
+	}
+}
+
+func (n *node) configChangeProcessed(key uint64, rejected bool) {
+	if n.isWitness() {
+		return
+	}
+	if rejected {
+		n.p.RejectConfigChange()
+		n.pendingConfigChange.apply(key, rejected)
+	} else {
+		n.pendingConfigChange.apply(key, rejected)
+		n.notifyConfigChange()
+	}
+}
+
+func (n *node) RestoreRemotes(snapshot pb.Snapshot) {
+	if snapshot.Membership.ConfigChangeId == 0 {
+		panic("invalid snapshot.Metadata.Membership.ConfChangeId")
+	}
+	n.raftMu.Lock()
+	defer n.raftMu.Unlock()
+	for nid, addr := range snapshot.Membership.Addresses {
+		n.nodeRegistry.AddNode(n.clusterID, nid, addr)
+	}
+	for nid, addr := range snapshot.Membership.Observers {
+		n.nodeRegistry.AddNode(n.clusterID, nid, addr)
+	}
+	for nid, addr := range snapshot.Membership.Witnesses {
+		n.nodeRegistry.AddNode(n.clusterID, nid, addr)
+	}
+	for nid := range snapshot.Membership.Removed {
+		if nid == n.nodeID {
+			n.nodeRegistry.RemoveCluster(n.clusterID)
+			n.requestRemoval()
+		}
+	}
+	plog.Infof("%s is restoring remotes", n.id())
+	n.p.RestoreRemotes(snapshot)
+	n.notifyConfigChange()
+}
+
+func (n *node) startRaft(cc config.Config,
+	logdb raft.ILogDB, peers map[uint64]string, initial bool) (bool, error) {
+	newNode, err := n.replayLog(cc.ClusterID, cc.NodeID)
+	if err != nil {
+		return false, err
+	}
+	pas := make([]raft.PeerAddress, 0)
+	for k, v := range peers {
+		pas = append(pas, raft.PeerAddress{NodeID: k, Address: v})
+	}
+	n.p = raft.Launch(&cc, logdb, n.raftEvents, pas, initial, newNode)
+	return newNode, nil
+}
+
+func (n *node) close() {
+	n.requestRemoval()
+	n.raftEvents.stop()
+	n.mq.Close()
+	n.pendingReadIndexes.close()
+	n.pendingProposals.close()
+	n.pendingConfigChange.close()
+	n.pendingSnapshot.close()
+}
+
+func (n *node) stopped() bool {
+	select {
+	case <-n.stopc:
+		return true
+	default:
+	}
+	return false
+}
+
+func (n *node) requestRemoval() {
+	n.closeOnce.Do(func() {
+		close(n.stopc)
+	})
+	plog.Infof("%s called requestRemoval()", n.id())
+}
+
+func (n *node) shouldStop() <-chan struct{} {
+	return n.stopc
+}
+
+func (n *node) concurrentSnapshot() bool {
+	return n.sm.Concurrent()
+}
+
+func (n *node) supportClientSession() bool {
+	return !n.OnDiskStateMachine()
+}
+
+func (n *node) isWitness() bool {
+	return n.config.IsWitness
+}
+
+func (n *node) OnDiskStateMachine() bool {
+	return n.sm.OnDiskStateMachine()
+}
+
+func (n *node) proposeSession(session *client.Session,
+	handler ICompleteHandler, timeoutTick uint64) (*RequestState, error) {
+	if n.isWitness() {
+		return nil, ErrInvalidOperation
+	}
+	if !session.ValidForSessionOp(n.clusterID) {
+		return nil, ErrInvalidSession
+	}
+	return n.pendingProposals.propose(session, nil, handler, timeoutTick)
+}
+
+func (n *node) payloadTooBig(sz int) bool {
+	if n.config.MaxInMemLogSize == 0 {
+		return false
+	}
+	return uint64(sz+settings.EntryNonCmdFieldsSize) > n.config.MaxInMemLogSize
+}
+
+func (n *node) propose(session *client.Session,
+	cmd []byte, handler ICompleteHandler,
+	timeoutTick uint64) (*RequestState, error) {
+	if n.isWitness() {
+		return nil, ErrInvalidOperation
+	}
+	if !session.ValidForProposal(n.clusterID) {
+		return nil, ErrInvalidSession
+	}
+	if n.payloadTooBig(len(cmd)) {
+		return nil, ErrPayloadTooBig
+	}
+	return n.pendingProposals.propose(session, cmd, handler, timeoutTick)
+}
+
+func (n *node) read(handler ICompleteHandler,
+	timeoutTick uint64) (*RequestState, error) {
+	if n.isWitness() {
+		return nil, ErrInvalidOperation
+	}
+	rs, err := n.pendingReadIndexes.read(handler, timeoutTick)
+	if err == nil {
+		rs.node = n
+	}
+	return rs, err
+}
+
+func (n *node) requestLeaderTransfer(nodeID uint64) error {
+	if n.isWitness() {
+		return ErrInvalidOperation
+	}
+	return n.pendingLeaderTransfer.request(nodeID)
+}
+
+func (n *node) requestSnapshot(opt SnapshotOption,
+	timeoutTick uint64) (*RequestState, error) {
+	st := rsm.UserRequestedSnapshot
+	if n.isWitness() {
+		return nil, ErrInvalidOperation
+	}
+	if opt.Exported {
+		plog.Infof("%s called export snapshot", n.id())
+		st = rsm.ExportedSnapshot
+		exist, err := fileutil.Exist(opt.ExportPath, n.snapshotter.fs)
+		if err != nil {
+			return nil, err
+		}
+		if !exist {
+			return nil, ErrDirNotExist
+		}
+	} else {
+		if len(opt.ExportPath) > 0 {
+			plog.Warningf("opt.ExportPath set when not exporting a snapshot")
+			opt.ExportPath = ""
+		}
+	}
+	return n.pendingSnapshot.request(st,
+		opt.ExportPath,
+		opt.OverrideCompactionOverhead,
+		opt.CompactionOverhead,
+		timeoutTick)
+}
+
+func (n *node) reportIgnoredSnapshotRequest(key uint64) {
+	n.pendingSnapshot.apply(key, true, false, 0)
+}
+
+func (n *node) requestConfigChange(cct pb.ConfigChangeType,
+	nodeID uint64, addr string, orderID uint64,
+	timeoutTick uint64) (*RequestState, error) {
+	if cct != pb.RemoveNode && !stringutil.IsValidAddress(addr) {
+		return nil, ErrInvalidAddress
+	}
+	if n.isWitness() {
+		return nil, ErrInvalidOperation
+	}
+	cc := pb.ConfigChange{
+		Type:           cct,
+		NodeID:         nodeID,
+		ConfigChangeId: orderID,
+		Address:        addr,
+	}
+	return n.pendingConfigChange.request(cc, timeoutTick)
+}
+
+func (n *node) requestDeleteNodeWithOrderID(nodeID uint64,
+	orderID uint64, timeoutTick uint64) (*RequestState, error) {
+	return n.requestConfigChange(pb.RemoveNode, nodeID, "", orderID, timeoutTick)
+}
+
+func (n *node) requestAddNodeWithOrderID(nodeID uint64,
+	addr string, orderID uint64, timeoutTick uint64) (*RequestState, error) {
+	return n.requestConfigChange(pb.AddNode,
+		nodeID, addr, orderID, timeoutTick)
+}
+
+func (n *node) requestAddObserverWithOrderID(nodeID uint64,
+	addr string, orderID uint64, timeoutTick uint64) (*RequestState, error) {
+	return n.requestConfigChange(pb.AddObserver,
+		nodeID, addr, orderID, timeoutTick)
+}
+
+func (n *node) requestAddWitnessWithOrderID(nodeID uint64,
+	addr string, orderID uint64, timeoutTick uint64) (*RequestState, error) {
+	return n.requestConfigChange(pb.AddWitness,
+		nodeID, addr, orderID, timeoutTick)
+}
+
+func (n *node) getLeaderID() (uint64, bool) {
+	v := atomic.LoadUint64(&n.leaderID)
+	return v, v != raft.NoLeader
+}
+
+func (n *node) notifyOffloaded(from rsm.From) {
+	if n.sm.Offloaded(from) {
+		n.sysEvents.Publish(server.SystemEvent{
+			Type:      server.NodeUnloaded,
+			ClusterID: n.clusterID,
+			NodeID:    n.nodeID,
+		})
+	}
+}
+
+func (n *node) notifyLoaded(from rsm.From) {
+	n.sm.Loaded(from)
+}
+
+func (n *node) entriesToApply(ents []pb.Entry) []pb.Entry {
+	if len(ents) == 0 {
+		return nil
+	}
+	lastIndex := ents[len(ents)-1].Index
+	if lastIndex < n.pushedIndex {
+		plog.Panicf("%s got entries [%d-%d] older than current state %d",
+			n.id(), ents[0].Index, lastIndex, n.pushedIndex)
+	}
+	firstIndex := ents[0].Index
+	if firstIndex > n.pushedIndex+1 {
+		plog.Panicf("%s has hole in to be applied logs, found: %d, want: %d",
+			n.id(), firstIndex, n.pushedIndex+1)
+	}
+	if n.pushedIndex-firstIndex+1 < uint64(len(ents)) {
+		return ents[n.pushedIndex-firstIndex+1:]
+	}
+	return nil
+}
+
+func (n *node) pushTask(rec rsm.Task) {
+	n.taskQ.Add(rec)
+	n.engine.setTaskReady(n.clusterID)
+}
+
+func (n *node) pushEntries(ents []pb.Entry) {
+	if len(ents) == 0 {
+		return
+	}
+	n.pushTask(rsm.Task{Entries: ents})
+	n.pushedIndex = ents[len(ents)-1].Index
+}
+
+func (n *node) pushStreamSnapshotRequest(clusterID uint64, nodeID uint64) {
+	n.pushTask(rsm.Task{
+		ClusterID:      clusterID,
+		NodeID:         nodeID,
+		StreamSnapshot: true,
+	})
+}
+
+func (n *node) pushTakeSnapshotRequest(req rsm.SSRequest) {
+	n.pushTask(rsm.Task{
+		SnapshotRequested: true,
+		SSRequest:         req,
+	})
+}
+
+func (n *node) pushSnapshot(snapshot pb.Snapshot, applied uint64) {
+	if pb.IsEmptySnapshot(snapshot) {
+		return
+	}
+	if snapshot.Index < n.pushedIndex ||
+		snapshot.Index < n.ss.getSnapshotIndex() ||
+		snapshot.Index < applied {
+		panic("got a snapshot older than current applied state")
+	}
+	n.pushTask(rsm.Task{
+		SnapshotAvailable: true,
+		Index:             snapshot.Index,
+	})
+	n.ss.setSnapshotIndex(snapshot.Index)
+	n.pushedIndex = snapshot.Index
+}
+
+func (n *node) replayLog(clusterID uint64, nodeID uint64) (bool, error) {
+	plog.Infof("%s is replaying logs", n.id())
+	snapshot, err := n.snapshotter.GetMostRecentSnapshot()
+	if err != nil && err != ErrNoSnapshot {
+		return false, err
+	}
+	if snapshot.Index > 0 {
+		if err = n.logreader.ApplySnapshot(snapshot); err != nil {
+			plog.Errorf("failed to apply snapshot, %v", err)
+			return false, err
+		}
+	}
+	rs, err := n.logdb.ReadRaftState(clusterID, nodeID, snapshot.Index)
+	if err == raftio.ErrNoSavedLog {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if rs.State != nil {
+		plog.Infof("%s has logdb entries size %d commit %d term %d",
+			n.id(), rs.EntryCount, rs.State.Commit, rs.State.Term)
+		n.logreader.SetState(*rs.State)
+	}
+	n.logreader.SetRange(rs.FirstIndex, rs.EntryCount)
+	newNode := true
+	if snapshot.Index > 0 || rs.EntryCount > 0 || rs.State != nil {
+		newNode = false
+	}
+	return newNode, nil
+}
+
+func (n *node) saveSnapshotRequired(applied uint64) bool {
+	if n.config.SnapshotEntries == 0 {
+		return false
+	}
+	si := n.ss.getSnapshotIndex()
+	if n.pushedIndex <= n.config.SnapshotEntries+si ||
+		applied <= n.config.SnapshotEntries+si ||
+		applied <= n.config.SnapshotEntries+n.ss.getReqSnapshotIndex() {
+		return false
+	}
+	if n.isBusySnapshotting() {
+		return false
+	}
+	plog.Infof("%s requested to create %s", n.id(), n.ssid(applied))
+	n.ss.setReqSnapshotIndex(applied)
+	return true
+}
+
+func isSoftSnapshotError(err error) bool {
+	return err == raft.ErrCompacted || err == raft.ErrSnapshotOutOfDate
+}
+
+func (n *node) saveSnapshot(rec rsm.Task) error {
+	index, err := n.doSaveSnapshot(rec.SSRequest)
+	if err != nil {
+		return err
+	}
+	n.pendingSnapshot.apply(rec.SSRequest.Key, index == 0, false, index)
+	n.sysEvents.Publish(server.SystemEvent{
+		Type:      server.SnapshotCreated,
+		ClusterID: n.clusterID,
+		NodeID:    n.nodeID,
+	})
+	return nil
+}
+
+func saveSnapshotAborted(err error) bool {
+	return err == sm.ErrSnapshotStopped || err == sm.ErrSnapshotAborted
+}
+
+func (n *node) doSaveSnapshot(req rsm.SSRequest) (uint64, error) {
+	n.snapshotLock.Lock()
+	defer n.snapshotLock.Unlock()
+	if !req.IsExportedSnapshot() &&
+		n.sm.GetLastApplied() <= n.ss.getSnapshotIndex() {
+		// a snapshot has been pushed to the sm but not applied yet
+		// or the snapshot has been applied and there is no further progress
+		return 0, nil
+	}
+	ss, ssenv, err := n.sm.SaveSnapshot(req)
+	if err != nil {
+		if saveSnapshotAborted(err) {
+			ssenv.MustRemoveTempDir()
+			n.pendingSnapshot.apply(req.Key, false, true, 0)
+			plog.Infof("%s aborted SaveSnapshot", n.id())
+			return 0, nil
+		} else if isSoftSnapshotError(err) || err == rsm.ErrTestKnobReturn {
+			return 0, nil
+		}
+		plog.Errorf("%s SaveSnapshot failed %v", n.id(), err)
+		return 0, err
+	}
+	if tests.ReadyToReturnTestKnob(n.stopc, "snapshotter.Commit") {
+		return 0, nil
+	}
+	plog.Infof("%s snapshotted, %s, term %d, file count %d",
+		n.id(), n.ssid(ss.Index), ss.Term, len(ss.Files))
+	if err := n.snapshotter.Commit(*ss, req); err != nil {
+		plog.Errorf("%s Commit failed %v", n.id(), err)
+		if err == errSnapshotOutOfDate {
+			ssenv.MustRemoveTempDir()
+			return 0, nil
+		}
+		// this can only happen in monkey test
+		if saveSnapshotAborted(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if req.IsExportedSnapshot() {
+		return ss.Index, nil
+	}
+	if !ss.Validate(n.snapshotter.fs) {
+		plog.Panicf("%s generated invalid snapshot %v", n.id(), ss)
+	}
+	if err = n.logreader.CreateSnapshot(*ss); err != nil {
+		plog.Errorf("%s CreateSnapshot failed %v", n.id(), err)
+		if !isSoftSnapshotError(err) {
+			return 0, err
+		}
+		return 0, nil
+	}
+	if err := n.compactSnapshot(req, ss.Index); err != nil {
+		return 0, err
+	}
+	n.ss.setSnapshotIndex(ss.Index)
+	return ss.Index, nil
+}
+
+func (n *node) compactSnapshot(req rsm.SSRequest, index uint64) error {
+	compactionOverhead := n.getCompactionOverhead(req)
+	if index > compactionOverhead {
+		n.ss.setCompactLogTo(index - compactionOverhead)
+	}
+	return n.compactSnapshots(index)
+}
+
+func (n *node) getCompactionOverhead(req rsm.SSRequest) uint64 {
+	if req.OverrideCompaction {
+		return req.CompactionOverhead
+	}
+	return n.config.CompactionOverhead
+}
+
+func (n *node) streamSnapshot(sink pb.IChunkSink) error {
+	if sink != nil {
+		plog.Infof("%s called streamSnapshot to node %d", n.id(), sink.ToNodeID())
+		if err := n.doStreamSnapshot(sink); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (n *node) doStreamSnapshot(sink pb.IChunkSink) error {
+	if err := n.sm.StreamSnapshot(sink); err != nil {
+		plog.Errorf("%s StreamSnapshot failed %v", n.id(), err)
+		if !saveSnapshotAborted(err) &&
+			err != sm.ErrSnapshotStreaming &&
+			err != rsm.ErrTestKnobReturn {
+			return err
+		}
+	}
+	return nil
+}
+
+func (n *node) recoverFromSnapshot(rec rsm.Task) (uint64, error) {
+	n.snapshotLock.Lock()
+	defer n.snapshotLock.Unlock()
+	if rec.InitialSnapshot && n.OnDiskStateMachine() {
+		plog.Infof("%s all disk SM is beng initialized", n.id())
+		idx, err := n.sm.OpenOnDiskStateMachine()
+		if err == sm.ErrSnapshotStopped || err == sm.ErrOpenStopped {
+			plog.Infof("%s aborted OpenOnDiskStateMachine", n.id())
+			return 0, sm.ErrOpenStopped
+		}
+		if err != nil {
+			plog.Errorf("%s, OpenOnDiskStateMachine failed %v", n.id(), err)
+			return 0, err
+		}
+		if idx > 0 && rec.NewNode {
+			plog.Panicf("%s, Open returned index %d (>0)", n.id(), idx)
+		}
+	}
+	index, err := n.sm.RecoverFromSnapshot(rec)
+	if err == sm.ErrSnapshotStopped {
+		plog.Infof("%s aborted its RecoverFromSnapshot", n.id())
+		return 0, err
+	}
+	if err != nil && err != raft.ErrSnapshotOutOfDate {
+		plog.Errorf("%s RecoverFromSnapshot failed %v", n.id(), err)
+		return 0, err
+	}
+	if index > 0 {
+		plog.Infof("%s recovered from %s", n.id(), n.ssid(index))
+		if n.OnDiskStateMachine() {
+			if err := n.sm.Sync(); err != nil {
+				plog.Errorf("%s sm.Sync failed %v", n.id(), err)
+				return 0, err
+			}
+			if err := n.snapshotter.Shrink(index); err != nil {
+				plog.Errorf("%s snapshotter.Shrink failed %v", n.id(), err)
+				return 0, err
+			}
+		}
+		if err := n.compactSnapshots(index); err != nil {
+			plog.Errorf("%s snapshotter.Compact failed %v", n.id(), err)
+			return 0, err
+		}
+	}
+	n.sysEvents.Publish(server.SystemEvent{
+		Type:      server.SnapshotRecovered,
+		ClusterID: n.clusterID,
+		NodeID:    n.nodeID,
+		Index:     index,
+	})
+	return index, nil
+}
+
+func (n *node) streamSnapshotDone() {
+	n.ss.notifySnapshotStatus(false, false, true, false, 0)
+	n.engine.setTaskReady(n.clusterID)
+}
+
+func (n *node) saveSnapshotDone() {
+	n.ss.notifySnapshotStatus(true, false, false, false, 0)
+	n.engine.setTaskReady(n.clusterID)
+}
+
+func (n *node) recoverFromSnapshotDone(index uint64) {
+	if !n.initialized() {
+		n.initialSnapshotDone(index)
+	} else {
+		n.doRecoverFromSnapshotDone()
+	}
+}
+
+func (n *node) initialSnapshotDone(index uint64) {
+	n.ss.notifySnapshotStatus(false, true, false, true, index)
+	n.engine.setTaskReady(n.clusterID)
+}
+
+func (n *node) doRecoverFromSnapshotDone() {
+	n.ss.notifySnapshotStatus(false, true, false, false, 0)
+	n.engine.setTaskReady(n.clusterID)
+}
+
+func (n *node) handleTask(ts []rsm.Task, es []sm.Entry) (rsm.Task, error) {
+	return n.sm.Handle(ts, es)
+}
+
+func (n *node) removeSnapshotFlagFile(index uint64) error {
+	return n.snapshotter.removeFlagFile(index)
+}
+
+func (n *node) runSyncTask() error {
+	if !n.sm.OnDiskStateMachine() {
+		return nil
+	}
+	if n.syncTask == nil ||
+		!n.syncTask.timeToRun(n.millisecondSinceStart()) {
+		return nil
+	}
+	if !n.sm.TaskChanBusy() {
+		n.pushTask(rsm.Task{PeriodicSync: true})
+	}
+	syncedIndex := n.sm.GetSyncedIndex()
+	if err := n.shrinkSnapshots(syncedIndex); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (n *node) shrinkSnapshots(index uint64) error {
+	if n.snapshotLock.TryLock() {
+		defer n.snapshotLock.Unlock()
+		if !n.sm.OnDiskStateMachine() {
+			panic("trying to shrink snapshots on non all disk SMs")
+		}
+		plog.Infof("%s will shrink snapshots up to %d", n.id(), index)
+		if err := n.snapshotter.Shrink(index); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (n *node) compactSnapshots(index uint64) error {
+	if err := n.snapshotter.Compact(index); err != nil {
+		return err
+	}
+	n.sysEvents.Publish(server.SystemEvent{
+		Type:      server.SnapshotCompacted,
+		ClusterID: n.clusterID,
+		NodeID:    n.nodeID,
+		Index:     index,
+	})
+	return nil
+}
+
+func (n *node) removeLog() error {
+	if n.ss.hasCompactLogTo() {
+		compactTo := n.ss.getCompactLogTo()
+		if compactTo == 0 {
+			panic("racy compact log to value?")
+		}
+		if err := n.logreader.Compact(compactTo); err != nil {
+			if err != raft.ErrCompacted {
+				return err
+			}
+		}
+		if err := n.logdb.RemoveEntriesTo(n.clusterID,
+			n.nodeID, compactTo); err != nil {
+			return err
+		}
+		plog.Infof("%s compacted log up to index %d", n.id(), compactTo)
+		n.ss.setCompactedTo(compactTo)
+		n.sysEvents.Publish(server.SystemEvent{
+			Type:      server.LogCompacted,
+			ClusterID: n.clusterID,
+			NodeID:    n.nodeID,
+			Index:     compactTo,
+		})
+		if !n.config.DisableAutoCompactions {
+			if _, err := n.requestCompaction(); err == nil {
+				plog.Infof("auto compaction for %s up to index %d", n.id(), compactTo)
+			}
+		}
+	}
+	return nil
+}
+
+func (n *node) requestCompaction() (*SysOpState, error) {
+	if compactTo := n.ss.getCompactedTo(); compactTo > 0 {
+		done, err := n.logdb.CompactEntriesTo(n.clusterID, n.nodeID, compactTo)
+		if err != nil {
+			return nil, err
+		}
+		n.sysEvents.Publish(server.SystemEvent{
+			Type:      server.LogDBCompacted,
+			ClusterID: n.clusterID,
+			NodeID:    n.nodeID,
+			Index:     compactTo,
+		})
+		return &SysOpState{completedC: done}, nil
+	}
+	return nil, ErrRejected
+}
+
+func isFreeOrderMessage(m pb.Message) bool {
+	return m.Type == pb.Replicate || m.Type == pb.Ping
+}
+
+func (n *node) sendEnterQuiesceMessages() {
+	nodes, _, _, _, _ := n.sm.GetMembership()
+	for nodeID := range nodes {
+		if nodeID != n.nodeID {
+			msg := pb.Message{
+				Type:      pb.Quiesce,
+				From:      n.nodeID,
+				To:        nodeID,
+				ClusterId: n.clusterID,
+			}
+			n.sendRaftMessage(msg)
+		}
+	}
+}
+
+func (n *node) sendMessages(msgs []pb.Message) {
+	for _, msg := range msgs {
+		if !isFreeOrderMessage(msg) {
+			msg.ClusterId = n.clusterID
+			n.sendRaftMessage(msg)
+		}
+	}
+}
+
+func (n *node) sendReplicateMessages(ud pb.Update) {
+	msgs := ud.Messages
+	for _, msg := range msgs {
+		if isFreeOrderMessage(msg) {
+			msg.ClusterId = n.clusterID
+			n.sendRaftMessage(msg)
+		}
+	}
+}
+
+func (n *node) getUpdate() (pb.Update, bool) {
+	moreEntriesToApply := n.canHaveMoreEntriesToApply()
+	if n.p.HasUpdate(moreEntriesToApply) ||
+		n.confirmedIndex != n.smAppliedIndex ||
+		n.ss.hasCompactLogTo() || n.ss.hasCompactedTo() {
+		if n.smAppliedIndex < n.confirmedIndex {
+			plog.Panicf("last applied value moving backwards, %d, now %d",
+				n.confirmedIndex, n.smAppliedIndex)
+		}
+		ud := n.p.GetUpdate(moreEntriesToApply, n.smAppliedIndex)
+		for idx := range ud.Messages {
+			ud.Messages[idx].ClusterId = n.clusterID
+		}
+		n.confirmedIndex = n.smAppliedIndex
+		return ud, true
+	}
+	return pb.Update{}, false
+}
+
+func (n *node) processDroppedReadIndexes(ud pb.Update) {
+	for _, sysctx := range ud.DroppedReadIndexes {
+		n.pendingReadIndexes.dropped(sysctx)
+	}
+}
+
+func (n *node) processDroppedEntries(ud pb.Update) {
+	for _, e := range ud.DroppedEntries {
+		if e.Type == pb.ApplicationEntry ||
+			e.Type == pb.EncodedEntry ||
+			e.Type == pb.MetadataEntry {
+			n.pendingProposals.dropped(e.ClientID, e.SeriesID, e.Key)
+		} else if e.Type == pb.ConfigChangeEntry {
+			n.pendingConfigChange.dropped(e.Key)
+		} else {
+			plog.Panicf("unknown dropped entry type %s", e.Type)
+		}
+	}
+}
+
+func (n *node) processReadyToRead(ud pb.Update) {
+	if len(ud.ReadyToReads) > 0 {
+		n.pendingReadIndexes.addReadyToRead(ud.ReadyToReads)
+		n.pendingReadIndexes.applied(ud.LastApplied)
+	}
+}
+
+func (n *node) processSnapshot(ud pb.Update) error {
+	if !pb.IsEmptySnapshot(ud.Snapshot) {
+		err := n.logreader.ApplySnapshot(ud.Snapshot)
+		if err != nil && !isSoftSnapshotError(err) {
+			return err
+		}
+		plog.Debugf("%s, snapshot %d ready to be pushed", n.id(), ud.Snapshot.Index)
+		n.pushSnapshot(ud.Snapshot, ud.LastApplied)
+	}
+	return nil
+}
+
+func (n *node) applyRaftUpdates(ud pb.Update) {
+	n.pushEntries(n.entriesToApply(ud.CommittedEntries))
+}
+
+func (n *node) processRaftUpdate(ud pb.Update) error {
+	if err := n.logreader.Append(ud.EntriesToSave); err != nil {
+		return err
+	}
+	n.sendMessages(ud.Messages)
+	if err := n.removeLog(); err != nil {
+		return err
+	}
+	if err := n.runSyncTask(); err != nil {
+		return err
+	}
+	if n.saveSnapshotRequired(ud.LastApplied) {
+		n.pushTakeSnapshotRequest(rsm.SSRequest{})
+	}
+	return nil
+}
+
+func (n *node) commitRaftUpdate(ud pb.Update) {
+	n.raftMu.Lock()
+	n.p.Commit(ud)
+	n.raftMu.Unlock()
+}
+
+func (n *node) canHaveMoreEntriesToApply() bool {
+	return n.taskQ.MoreEntryToApply()
+}
+
+func (n *node) hasEntryToApply() bool {
+	return n.p.HasEntryToApply()
+}
+
+func (n *node) updateBatchedLastApplied() uint64 {
+	n.smAppliedIndex = n.sm.GetBatchedLastApplied()
+	n.p.NotifyRaftLastApplied(n.smAppliedIndex)
+	return n.smAppliedIndex
+}
+
+func (n *node) stepNode() (pb.Update, bool) {
+	n.raftMu.Lock()
+	defer n.raftMu.Unlock()
+	if n.initialized() {
+		if n.handleEvents() {
+			if n.newQuiesceState() {
+				n.sendEnterQuiesceMessages()
+			}
+			return n.getUpdate()
+		}
+	}
+	return pb.Update{}, false
+}
+
+func (n *node) handleEvents() bool {
+	hasEvent := false
+	lastApplied := n.updateBatchedLastApplied()
+	if lastApplied != n.confirmedIndex {
+		hasEvent = true
+	}
+	if n.hasEntryToApply() {
+		hasEvent = true
+	}
+	if n.handleReadIndexRequests() {
+		hasEvent = true
+	}
+	if n.handleReceivedMessages() {
+		hasEvent = true
+	}
+	if n.handleConfigChangeMessage() {
+		hasEvent = true
+	}
+	if n.handleProposals() {
+		hasEvent = true
+	}
+	if n.handleLeaderTransferRequest() {
+		hasEvent = true
+	}
+	if n.handleSnapshotRequest(lastApplied) {
+		hasEvent = true
+	}
+	if n.handleCompactionRequest() {
+		hasEvent = true
+	}
+	if hasEvent {
+		if n.expireNotified != n.tickCount {
+			n.pendingProposals.gc()
+			n.pendingConfigChange.gc()
+			n.pendingSnapshot.gc()
+			n.expireNotified = n.tickCount
+		}
+		n.pendingReadIndexes.applied(lastApplied)
+	}
+	return hasEvent
+}
+
+func (n *node) handleCompactionRequest() bool {
+	return n.ss.hasCompactedTo() || n.ss.hasCompactLogTo()
+}
+
+func (n *node) handleLeaderTransferRequest() bool {
+	target, ok := n.pendingLeaderTransfer.get()
+	if ok {
+		n.p.RequestLeaderTransfer(target)
+	}
+	return ok
+}
+
+func (n *node) handleSnapshotRequest(lastApplied uint64) bool {
+	var req rsm.SSRequest
+	select {
+	case req = <-n.snapshotC:
+	default:
+		return false
+	}
+	si := n.ss.getReqSnapshotIndex()
+	if !req.IsExportedSnapshot() && lastApplied == si {
+		n.reportIgnoredSnapshotRequest(req.Key)
+		return false
+	}
+	n.ss.setReqSnapshotIndex(lastApplied)
+	n.pushTakeSnapshotRequest(req)
+	return true
+}
+
+func (n *node) handleProposals() bool {
+	rateLimited := n.p.RateLimited()
+	if n.rateLimited != rateLimited {
+		n.rateLimited = rateLimited
+		plog.Infof("%s new rate limit state is %t", n.id(), rateLimited)
+	}
+	entries := n.incomingProposals.get(n.rateLimited)
+	if len(entries) > 0 {
+		n.p.ProposeEntries(entries)
+		return true
+	}
+	return false
+}
+
+func (n *node) handleReadIndexRequests() bool {
+	reqs := n.incomingReadIndexes.get()
+	if len(reqs) > 0 {
+		n.recordActivity(pb.ReadIndex)
+		ctx := n.pendingReadIndexes.peepNextCtx()
+		n.pendingReadIndexes.addPendingRead(ctx, reqs)
+		n.increaseReadReqCount()
+		return true
+	}
+	return false
+}
+
+func (n *node) handleConfigChangeMessage() bool {
+	if len(n.confChangeC) == 0 {
+		return false
+	}
+	select {
+	case req, ok := <-n.confChangeC:
+		if !ok {
+			n.confChangeC = nil
+		} else {
+			n.recordActivity(pb.ConfigChangeEvent)
+			var cc pb.ConfigChange
+			if err := cc.Unmarshal(req.data); err != nil {
+				panic(err)
+			}
+			n.p.ProposeConfigChange(cc, req.key)
+		}
+	case <-n.stopc:
+		return false
+	default:
+		return false
+	}
+	return true
+}
+
+func (n *node) isBusySnapshotting() bool {
+	snapshotting := n.ss.recoveringFromSnapshot()
+	if !n.concurrentSnapshot() {
+		snapshotting = snapshotting || n.ss.takingSnapshot()
+	}
+	return snapshotting && n.sm.TaskChanBusy()
+}
+
+func (n *node) handleLocalTickMessage(count uint64) {
+	if count > n.config.ElectionRTT {
+		count = n.config.ElectionRTT
+	}
+	for i := uint64(0); i < count; i++ {
+		n.tick()
+	}
+}
+
+func (n *node) tryRecordNodeActivity(m pb.Message) {
+	if (m.Type == pb.Heartbeat ||
+		m.Type == pb.HeartbeatResp) &&
+		m.Hint > 0 {
+		n.recordActivity(pb.ReadIndex)
+	} else {
+		n.recordActivity(m.Type)
+	}
+}
+
+func (n *node) handleReceivedMessages() bool {
+	hasEvent := false
+	ltCount := uint64(0)
+	scCount := n.getReadReqCount()
+	busy := n.isBusySnapshotting()
+	msgs := n.mq.Get()
+	for _, m := range msgs {
+		hasEvent = true
+		if m.Type == pb.LocalTick {
+			ltCount++
+			continue
+		}
+		if m.Type == pb.Replicate && busy {
+			continue
+		}
+		if done := n.handleMessage(m); !done {
+			if m.ClusterId != n.clusterID {
+				plog.Panicf("received message for cluster %d on %d",
+					m.ClusterId, n.clusterID)
+			}
+			n.tryRecordNodeActivity(m)
+			n.p.Handle(m)
+		}
+	}
+	if scCount > 0 {
+		n.batchedReadIndex()
+	}
+	if lazyFreeCycle > 0 {
+		for i := range msgs {
+			msgs[i].Entries = nil
+		}
+	}
+	n.handleLocalTickMessage(ltCount)
+	return hasEvent
+}
+
+func (n *node) handleMessage(m pb.Message) bool {
+	switch m.Type {
+	case pb.Quiesce:
+		n.tryEnterQuiesce()
+	case pb.SnapshotStatus:
+		plog.Debugf("%s got ReportSnapshot from %d, rejected %t",
+			n.id(), m.From, m.Reject)
+		n.p.ReportSnapshotStatus(m.From, m.Reject)
+	case pb.Unreachable:
+		n.p.ReportUnreachableNode(m.From)
+	default:
+		return false
+	}
+	return true
+}
+
+func (n *node) setInitialStatus(index uint64) {
+	if n.initialized() {
+		panic("setInitialStatus called twice")
+	}
+	plog.Infof("%s initial index set to %d", n.id(), index)
+	n.ss.setSnapshotIndex(index)
+	n.pushedIndex = index
+	n.setInitialized()
+}
+
+func (n *node) handleSnapshotTask(task rsm.Task) {
+	if n.ss.recoveringFromSnapshot() {
+		plog.Panicf("%s is recovering from snapshot again", n.id())
+	}
+	if task.SnapshotAvailable {
+		n.reportAvailableSnapshot(task)
+	} else if task.SnapshotRequested {
+		if n.ss.takingSnapshot() {
+			plog.Infof("%s is taking snapshot, ignored new snapshot req", n.id())
+			n.reportIgnoredSnapshotRequest(task.SSRequest.Key)
+			return
+		}
+		n.reportRequestedSnapshot(task)
+	} else if task.StreamSnapshot {
+		if !n.canStreamSnapshot() {
+			n.reportSnapshotStatus(task.ClusterID, task.NodeID, true)
+			return
+		}
+		n.reportStreamSnapshot(task)
+	} else {
+		panic("unknown returned task rec type")
+	}
+}
+
+func (n *node) reportSnapshotStatus(clusterID uint64,
+	nodeID uint64, failed bool) {
+	n.handleSnapshotStatus(clusterID, nodeID, failed)
+}
+
+func (n *node) reportStreamSnapshot(rec rsm.Task) {
+	n.ss.setStreamingSnapshot()
+	getSinkFn := func() pb.IChunkSink {
+		conn := n.getStreamConnection(rec.ClusterID, rec.NodeID)
+		if conn == nil {
+			plog.Errorf("failed to connect to %s", dn(rec.ClusterID, rec.NodeID))
+			return nil
+		}
+		return conn
+	}
+	n.ss.setStreamSnapshotReq(rec, getSinkFn)
+	n.engine.setStreamReady(n.clusterID)
+}
+
+func (n *node) canStreamSnapshot() bool {
+	if n.ss.streamingSnapshot() {
+		plog.Infof("%s ignored task.StreamSnapshot", n.id())
+		return false
+	}
+	if !n.sm.ReadyToStreamSnapshot() {
+		plog.Infof("%s is not ready to stream snapshot", n.id())
+		return false
+	}
+	return true
+}
+
+func (n *node) reportRequestedSnapshot(rec rsm.Task) {
+	n.ss.setTakingSnapshot()
+	n.ss.setSaveSnapshotReq(rec)
+	n.engine.setRequestedSnapshotReady(n.clusterID)
+}
+
+func (n *node) reportAvailableSnapshot(rec rsm.Task) {
+	n.ss.setRecoveringFromSnapshot()
+	n.ss.setRecoverFromSnapshotReq(rec)
+	n.engine.setAvailableSnapshotReady(n.clusterID)
+}
+
+func (n *node) processSnapshotStatusTransition() bool {
+	if n.processTakeSnapshotStatus() {
+		return true
+	}
+	if n.processStreamSnapshotStatus() {
+		return true
+	}
+	if n.processRecoverSnapshotStatus() {
+		return true
+	}
+	if task, ok := n.getUninitializedNodeTask(); ok {
+		n.ss.setRecoveringFromSnapshot()
+		n.reportAvailableSnapshot(task)
+		return true
+	}
+	return false
+}
+
+func (n *node) getUninitializedNodeTask() (rsm.Task, bool) {
+	if !n.initialized() {
+		plog.Infof("%s checking initial snapshot", n.id())
+		return rsm.Task{
+			SnapshotAvailable: true,
+			InitialSnapshot:   true,
+			NewNode:           n.new,
+		}, true
+	}
+	return rsm.Task{}, false
+}
+
+func (n *node) processRecoverSnapshotStatus() bool {
+	if n.ss.recoveringFromSnapshot() {
+		rec, ok := n.ss.getRecoverCompleted()
+		if !ok {
+			return true
+		}
+		if rec.SnapshotRequested {
+			panic("got a completed.SnapshotRequested")
+		}
+		if rec.InitialSnapshot {
+			plog.Infof("%s initialized using %s", n.id(), n.ssid(rec.Index))
+			n.setInitialStatus(rec.Index)
+			n.sysEvents.Publish(server.SystemEvent{
+				Type:      server.NodeReady,
+				ClusterID: n.clusterID,
+				NodeID:    n.nodeID,
+			})
+		}
+		n.ss.clearRecoveringFromSnapshot()
+	}
+	return false
+}
+
+func (n *node) processTakeSnapshotStatus() bool {
+	if n.ss.takingSnapshot() {
+		rec, ok := n.ss.getSaveSnapshotCompleted()
+		if !ok {
+			return !n.concurrentSnapshot()
+		}
+		if rec.SnapshotRequested && !n.initialized() {
+			plog.Panicf("%s taking snapshot when uninitialized", n.id())
+		}
+		n.ss.clearTakingSnapshot()
+	}
+	return false
+}
+
+func (n *node) processStreamSnapshotStatus() bool {
+	if n.ss.streamingSnapshot() {
+		if !n.OnDiskStateMachine() {
+			panic("non-on disk sm is streaming snapshot")
+		}
+		_, ok := n.ss.getStreamSnapshotCompleted()
+		if !ok {
+			return false
+		}
+		n.ss.clearStreamingSnapshot()
+	}
+	return false
+}
+
+func (n *node) batchedReadIndex() {
+	ctx := n.pendingReadIndexes.nextCtx()
+	n.p.ReadIndex(ctx)
+}
+
+func (n *node) tick() {
+	if n.p == nil {
+		panic("rc node is still nil")
+	}
+	n.tickCount++
+	n.increaseQuiesceTick()
+	if n.quiesced() {
+		n.p.QuiescedTick()
+	} else {
+		n.p.Tick()
+	}
+	n.pendingSnapshot.tick()
+	n.pendingProposals.tick()
+	n.pendingReadIndexes.tick()
+	n.pendingConfigChange.tick()
+}
+
+func (n *node) notifyConfigChange() {
+	nodes, observers, witnesses, _, index := n.sm.GetMembership()
+	if len(nodes) == 0 {
+		plog.Panicf("empty nodes %s", n.id())
+	}
+	_, isObserver := observers[n.nodeID]
+	_, isWitness := witnesses[n.nodeID]
+	ci := &ClusterInfo{
+		ClusterID:         n.clusterID,
+		NodeID:            n.nodeID,
+		IsLeader:          n.isLeader(),
+		IsObserver:        isObserver,
+		IsWitness:         isWitness,
+		ConfigChangeIndex: index,
+		Nodes:             nodes,
+	}
+	n.clusterInfo.Store(ci)
+	n.sysEvents.Publish(server.SystemEvent{
+		Type:      server.MembershipChanged,
+		ClusterID: n.clusterID,
+		NodeID:    n.nodeID,
+	})
+}
+
+func (n *node) getStateMachineType() sm.Type {
+	if n.smType == pb.RegularStateMachine {
+		return sm.RegularStateMachine
+	} else if n.smType == pb.ConcurrentStateMachine {
+		return sm.ConcurrentStateMachine
+	} else if n.smType == pb.OnDiskStateMachine {
+		return sm.OnDiskStateMachine
+	}
+	panic("unknown type")
+}
+
+func (n *node) getClusterInfo() *ClusterInfo {
+	v := n.clusterInfo.Load()
+	if v == nil {
+		return &ClusterInfo{
+			ClusterID:        n.clusterID,
+			NodeID:           n.nodeID,
+			Pending:          true,
+			StateMachineType: n.getStateMachineType(),
+		}
+	}
+	ci := v.(*ClusterInfo)
+	return &ClusterInfo{
+		ClusterID:         ci.ClusterID,
+		NodeID:            ci.NodeID,
+		IsLeader:          n.isLeader(),
+		IsObserver:        ci.IsObserver,
+		ConfigChangeIndex: ci.ConfigChangeIndex,
+		Nodes:             ci.Nodes,
+		StateMachineType:  n.getStateMachineType(),
+	}
+}
+
+func (n *node) id() string {
+	return dn(n.clusterID, n.nodeID)
+}
+
+func (n *node) ssid(index uint64) string {
+	return logutil.DescribeSS(n.clusterID, n.nodeID, index)
+}
+
+func (n *node) isLeader() bool {
+	if n.p != nil {
+		leaderID, _ := n.getLeaderID()
+		return n.nodeID == leaderID
+	}
+	return false
+}
+
+func (n *node) isFollower() bool {
+	if n.p != nil {
+		leaderID, _ := n.getLeaderID()
+		if leaderID != n.nodeID && leaderID != raft.NoLeader {
+			return true
+		}
+	}
+	return false
+}
+
+func (n *node) increaseReadReqCount() {
+	atomic.AddUint64(&n.readReqCount, 1)
+}
+
+func (n *node) getReadReqCount() uint64 {
+	return atomic.SwapUint64(&n.readReqCount, 0)
+}
+
+func (n *node) initialized() bool {
+	n.initializedMu.Lock()
+	defer n.initializedMu.Unlock()
+	return n.initializedMu.initialized
+}
+
+func (n *node) setInitialized() {
+	n.initializedMu.Lock()
+	defer n.initializedMu.Unlock()
+	n.initializedMu.initialized = true
+}
+
+func (n *node) millisecondSinceStart() uint64 {
+	return n.tickMillisecond * n.tickCount
+}
