@@ -11,8 +11,9 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/rsocket/rsocket-go/rx/mono"
 
-	"github.com/Conf-Group/pole/auth"
+	"github.com/Conf-Group/pole/common"
 	"github.com/Conf-Group/pole/pojo"
+	"github.com/Conf-Group/pole/server/auth"
 	"github.com/Conf-Group/pole/server/sys"
 	"github.com/Conf-Group/pole/transport/rsocket"
 )
@@ -31,24 +32,27 @@ var (
 	}
 )
 
-type DiscoveryModule struct {
+type DiscoveryServer struct {
 	console *DiscoveryConsole
 	api     *DiscoverySdkAPI
 }
 
-func NewDiscovery(cfg sys.Properties, ctx context.Context, httpServer *gin.Engine) *DiscoveryModule {
-	return &DiscoveryModule{
+func NewDiscoveryServer(cfg sys.Properties, ctx *common.ContextPole, httpServer *gin.Engine) *DiscoveryServer {
+	server := &DiscoveryServer{
 		console: newDiscoveryConsole(cfg, httpServer),
 		api:     newDiscoverySdkAPI(cfg),
 	}
+
+	server.Init(ctx)
+	return server
 }
 
-func (d *DiscoveryModule) Init(ctx context.Context) {
+func (d *DiscoveryServer) Init(ctx *common.ContextPole) {
 	d.console.Init(ctx)
 	d.api.Init(ctx)
 }
 
-func (d *DiscoveryModule) Shutdown() {
+func (d *DiscoveryServer) Shutdown() {
 	d.console.Shutdown()
 	d.api.Shutdown()
 }
@@ -64,7 +68,7 @@ func newDiscoveryConsole(cfg sys.Properties, httpServer *gin.Engine) *DiscoveryC
 	}
 }
 
-func (nc *DiscoveryConsole) Init(ctx context.Context) {
+func (nc *DiscoveryConsole) Init(ctx *common.ContextPole) {
 	subCtx, _ := context.WithCancel(ctx)
 	nc.ctx = subCtx
 
@@ -87,9 +91,9 @@ func newDiscoverySdkAPI(cfg sys.Properties) *DiscoverySdkAPI {
 }
 
 // 注册请求处理器
-func (na *DiscoverySdkAPI) Init(ctx context.Context) {
+func (na *DiscoverySdkAPI) Init(ctx *common.ContextPole) {
 	subCtx, _ := context.WithCancel(ctx)
-	na.server = rsocket.NewRSocketServer(subCtx, "POLE-DISCOVERY", na.cfg.DiscoveryPort, nil, na.cfg.OpenSSL)
+	na.server = rsocket.NewRSocketServer(subCtx, "POLE-DISCOVERY", na.cfg.DiscoveryPort, na.cfg.OpenSSL)
 
 	na.server.Dispatcher.RegisterRequestResponseHandler(InstanceRegister, auth.WriteOnly, InstanceRegisterSupplier,
 		func(ctx context.Context, req proto.Message, sink mono.Sink) {

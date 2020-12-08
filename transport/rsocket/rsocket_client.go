@@ -9,10 +9,10 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
-	"strconv"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/rsocket/rsocket-go"
+	"github.com/rsocket/rsocket-go/core/transport"
 	"github.com/rsocket/rsocket-go/payload"
 	"github.com/rsocket/rsocket-go/rx/mono"
 
@@ -41,33 +41,32 @@ func NewRSocketClient(label, token string, serverAddr []string, openTSL bool) *R
 
 	for _, address := range serverAddr {
 		ip, port := utils.AnalyzeIPAndPort(address)
-		start := rsocket.Connect().
+		c, err := rsocket.Connect().
 			OnClose(func(err error) {
 
 			}).
 			Acceptor(func(socket rsocket.RSocket) rsocket.RSocket {
 				return rsocket.NewAbstractSocket(client.dispatcher.CreateRequestResponseSocket(), client.dispatcher.CreateRequestChannelSocket())
 			}).
-			Transport("tcp://" + ip + ":" + strconv.FormatInt(int64(port), 10))
-		var err error
-		var c rsocket.Client
-
-		if openTSL {
-			c, err = start.StartTLS(context.Background(), &tls.Config{})
-		} else {
-			c, err = start.Start(context.Background())
-		}
-
+			Transport(func(ctx context.Context) (*transport.Transport, error) {
+				tcb := rsocket.TCPClient().SetHostAndPort(ip, int(port))
+				if openTSL {
+					tcb.SetTLSConfig(&tls.Config{})
+				}
+				return tcb.Build()(ctx)
+			}).
+			Start(context.Background())
 		if err != nil {
 			panic(err)
 		}
+
 		client.sockets[address] = c
 	}
 
 	return client
 }
 
-func (c *RSocketClient) SendRequest(serverAddr string, req *pojo.GrpcRequest) mono.Mono {
+func (c *RSocketClient) SendRequest(serverAddr string, req *pojo.ServerRequest) mono.Mono {
 	header := map[string]string{
 		constants.TokenKey: c.token,
 	}

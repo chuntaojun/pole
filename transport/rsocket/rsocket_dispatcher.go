@@ -18,8 +18,8 @@ import (
 	"github.com/rsocket/rsocket-go/rx/flux"
 	"github.com/rsocket/rsocket-go/rx/mono"
 
-	"github.com/Conf-Group/pole/auth"
 	"github.com/Conf-Group/pole/pojo"
+	"github.com/Conf-Group/pole/server/auth"
 )
 
 var (
@@ -50,7 +50,7 @@ type Dispatcher struct {
 type RSocketRequest struct {
 	Op  auth.OperationType
 	Msg payload.Payload
-	Req *pojo.GrpcRequest
+	Req *pojo.ServerRequest
 }
 
 func NewDispatcher(label string) *Dispatcher {
@@ -68,7 +68,7 @@ func (r *Dispatcher) RegisterFilter(chain ...func(req RSocketRequest) error) {
 func (r *Dispatcher) CreateRequestResponseSocket() rsocket.OptAbstractSocket {
 	return rsocket.RequestResponse(func(msg payload.Payload) mono.Mono {
 		body := msg.Data()
-		gRPCRep := &pojo.GrpcRequest{}
+		gRPCRep := &pojo.ServerRequest{}
 		err := proto.Unmarshal(body, gRPCRep)
 		if err != nil {
 			return mono.Error(err)
@@ -112,7 +112,7 @@ func (r *Dispatcher) CreateRequestChannelSocket() rsocket.OptAbstractSocket {
 			requests.SubscribeOn(scheduler.Elastic()).
 				DoOnNext(func(input payload.Payload) error {
 					body := input.Data()
-					gRPCRep := &pojo.GrpcRequest{}
+					gRPCRep := &pojo.ServerRequest{}
 					err := proto.Unmarshal(body, gRPCRep)
 					if err != nil {
 						panic(err)

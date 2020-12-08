@@ -1,0 +1,22 @@
+// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+syntax = "proto3";
+
+import "google/protobuf/any.proto";
+package pojo;
+
+message ServerRequest {
+  string label = 1;
+  google.protobuf.Any body = 2;
+  string requestId = 3;
+  map<string, string> header = 4;
+}
+
+message ServerResponse {
+  string label = 1;
+  google.protobuf.Any body = 2;
+  string requestId = 3;
+  map<string, string> header = 4;
+}

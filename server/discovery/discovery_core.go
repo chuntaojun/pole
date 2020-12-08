@@ -17,6 +17,13 @@ const (
 	OR  = "or"
 )
 
+type QueryInstance struct {
+	namespaceID string
+	serviceName string
+	clusterName string
+	clientHost  string
+}
+
 type ServiceManager struct {
 	lock     sync.RWMutex
 	services map[string]map[string]*Service
@@ -33,22 +40,32 @@ func (sm *ServiceManager) FindService(namespaceID, serviceName string) *Service 
 	return nil
 }
 
-func (sm *ServiceManager) Select(namespaceID, cServiceName, clusterName, clientHost, tServiceName string) []Instance {
+// 查询某个服务下的实例信息，支持模糊查询的操作
+func (sm *ServiceManager) SelectInstances(query QueryInstance) []Instance {
 	return nil
+}
+
+type ServiceMetadata struct {
+	ServiceName string
+	metadata    map[string]string
+	// consumer.label.{key}=provider.label.{key}
+	LabelRules map[string]string
 }
 
 type Service struct {
 	clusterLock sync.RWMutex
 	labelLock   sync.RWMutex
-
 	ServiceName string
 	Clusters    map[string]*Cluster
-	// consumer.label.{key}=provider.label.{key}
-	LabelRules map[string]string
 }
 
 func (s *Service) FindInstance(clusterName, key string) Instance {
 	return s.Clusters[clusterName].FindInstance(key)
+}
+
+type ClusterMetadata struct {
+	ClusterName string
+	metadata    map[string]string
 }
 
 type Cluster struct {
@@ -100,6 +117,23 @@ func (c *Cluster) GetMetadata() map[string]string {
 	return c.metadata.Load().(map[string]string)
 }
 
+type InstanceMetadata struct {
+	key      string
+	metadata map[string]string
+}
+
+func (i InstanceMetadata) GetKey() string {
+	return i.key
+}
+
+func (i InstanceMetadata) UpdateMetadata(newMetadata map[string]string) {
+	i.metadata = newMetadata
+}
+
+func (i InstanceMetadata) GetMetadata(key string) string {
+	return i.metadata[key]
+}
+
 type Instance struct {
 	key       string
 	host      string
@@ -108,7 +142,6 @@ type Instance struct {
 	enabled   bool
 	healthy   bool
 	temporary bool
-	metadata  map[string]string
 }
 
 func (i Instance) GetIP() string {
@@ -145,14 +178,6 @@ func (i Instance) SetHealthy(healthy bool) {
 
 func (i Instance) IsHealthy() bool {
 	return i.healthy
-}
-
-func (i Instance) UpdateMetadata(newMetadata map[string]string) {
-	i.metadata = newMetadata
-}
-
-func (i Instance) GetMetadata(key string) string {
-	return i.metadata[key]
 }
 
 func (i Instance) GetKey() string {

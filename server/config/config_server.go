@@ -9,28 +9,29 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Conf-Group/pole/common"
 	"github.com/Conf-Group/pole/server/sys"
 	"github.com/Conf-Group/pole/transport/rsocket"
 )
 
-type Config struct {
+type ConfigServer struct {
 	console *ConfConsole
 	api     *ConfAPI
 }
 
-func NewConfig(cfg sys.Properties, ctx context.Context, httpServer *gin.Engine) *Config {
-	return &Config{
+func NewConfig(cfg sys.Properties, ctx context.Context, httpServer *gin.Engine) *ConfigServer {
+	return &ConfigServer{
 		console: newConfigConsole(cfg, httpServer),
 		api:     newConfAPI(cfg, ctx),
 	}
 }
 
-func (c *Config) Init(ctx context.Context) {
+func (c *ConfigServer) Init(ctx *common.ContextPole) {
 	c.console.Init(ctx)
 	c.api.Init(ctx)
 }
 
-func (c *Config) Shutdown() {
+func (c *ConfigServer) Shutdown() {
 	if c.console != nil {
 		c.console.Shutdown()
 	}
@@ -49,7 +50,7 @@ func newConfigConsole(cfg sys.Properties, httpServer *gin.Engine) *ConfConsole {
 	}
 }
 
-func (cc *ConfConsole) Init(ctx context.Context) {
+func (cc *ConfConsole) Init(ctx *common.ContextPole) {
 }
 
 func (cc *ConfConsole) Shutdown() {
@@ -64,12 +65,12 @@ type ConfAPI struct {
 func newConfAPI(cfg sys.Properties, ctx	context.Context) *ConfAPI {
 	subCtx, _ := context.WithCancel(ctx)
 	return &ConfAPI{
-		server: rsocket.NewRSocketServer(subCtx, "CONF-CONFIG", cfg.ConfigPort, nil, cfg.OpenSSL),
+		server: rsocket.NewRSocketServer(subCtx, "CONF-CONFIG", cfg.ConfigPort, cfg.OpenSSL),
 		ctx:    subCtx,
 	}
 }
 
-func (ca *ConfAPI) Init(ctx context.Context) {
+func (ca *ConfAPI) Init(ctx *common.ContextPole) {
 
 }
 

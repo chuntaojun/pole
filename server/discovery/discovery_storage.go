@@ -7,30 +7,31 @@ import (
 )
 
 type DiscoveryStorage interface {
-	SaveService(service *pojo.Service)
+	SaveService(service Service)
 
-	BatchUpdateService(services []*pojo.Service)
+	BatchUpdateService(services []Service)
 
-	RemoveService(services *pojo.Service)
+	RemoveService(services Service)
 
-	SaveCluster(cluster *pojo.Cluster)
+	SaveCluster(cluster Cluster)
 
-	BatchUpdateCluster(clusters []*pojo.Cluster)
+	BatchUpdateCluster(clusters Cluster)
 
-	RemoveCluster(cluster *pojo.Cluster)
+	RemoveCluster(cluster Cluster)
 
-	SaveInstance(instance *pojo.Instance)
+	SaveInstance(instance Instance)
 
-	BatchUpdateInstance(instances []*pojo.Instance)
+	BatchUpdateInstance(instances Instance)
 
-	RemoveInstance(instance *pojo.Instance)
+	RemoveInstance(instance Instance)
 }
-
-
 
 type memoryDiscoveryStorage struct {
 	serviceMapLock  sync.RWMutex
 	clusterMapLock  sync.RWMutex
 	instanceMapLock sync.RWMutex
 	services        map[string]*pojo.Service
+}
+
+type pebbleDiscoveryStorage struct {
 }
