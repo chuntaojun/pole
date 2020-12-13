@@ -20,6 +20,15 @@ message InstanceDeregister {
   string namespaceId = 2;
 }
 
+message InstanceDisabled {
+  string serviceName = 1;
+  string group = 2;
+  string ip = 3;
+  int64 port = 4;
+  bool enabled = 9;
+  string namespaceId = 5;
+}
+
 message InstanceHeartBeat {
   Instance instance = 1;
   string namespaceId = 2;

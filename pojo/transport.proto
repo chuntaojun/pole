@@ -16,7 +16,13 @@ message ServerRequest {
 
 message ServerResponse {
   string label = 1;
-  google.protobuf.Any body = 2;
-  string requestId = 3;
+  string requestId = 2;
+  RestResult result = 3;
   map<string, string> header = 4;
+}
+
+message RestResult {
+  int32 code = 1;
+  string msg = 2;
+  google.protobuf.Any body = 3;
 }

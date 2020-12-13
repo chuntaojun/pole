@@ -4,8 +4,8 @@
 
 package pojo
 
-type RestResult struct {
-	Code int         `json:"code"`
-	Body interface{} `json:"body,omitempty"`
-	Msg  string      `json:"msg"`
+type HttpResult struct {
+	Code int32
+	Msg  string
+	Body interface{}
 }
