@@ -41,7 +41,7 @@ func MultiParse(arr ...string) []*Member {
 func SingParse(s string) *Member {
 	ss := strings.Split(s, ":")
 	ip := ss[0]
-	port, err := strconv.Atoi(ss[1])
+	port, err := strconv.ParseUint(ss[1], 10, 64)
 	if err != nil {
 		panic(err)
 	}

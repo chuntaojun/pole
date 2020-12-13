@@ -5,25 +5,24 @@
 package discovery
 
 import (
-	"context"
-
 	"github.com/gin-gonic/gin"
 	"github.com/golang/protobuf/proto"
-	"github.com/rsocket/rsocket-go/rx/mono"
+	"github.com/golang/protobuf/ptypes"
 
 	"github.com/Conf-Group/pole/common"
 	"github.com/Conf-Group/pole/pojo"
-	"github.com/Conf-Group/pole/server/auth"
 	"github.com/Conf-Group/pole/server/sys"
-	"github.com/Conf-Group/pole/transport/rsocket"
+	"github.com/Conf-Group/pole/transport"
 )
 
 const (
-	InstanceCommonPath = sys.APIVersion + "/discovery/instance/"
-	InstanceRegister   = InstanceCommonPath + "register"
-	InstanceDeregister = InstanceCommonPath + "deregister"
-	InstanceUpdate     = InstanceCommonPath + "update"
-	InstanceHeartbeat  = InstanceCommonPath + "heartbeat"
+	InstanceCommonPath     = sys.APIVersion + "/discovery/instance/"
+	InstanceRegister       = InstanceCommonPath + "register"
+	InstanceDeregister     = InstanceCommonPath + "deregister"
+	InstanceMetadataUpdate = InstanceCommonPath + "metadataUpdate"
+	InstanceHeartbeat      = InstanceCommonPath + "heartbeat"
+	InstanceSelect         = InstanceCommonPath + "select"
+	InstanceDisabled       = InstanceCommonPath + "disabled"
 )
 
 var (
@@ -59,7 +58,8 @@ func (d *DiscoveryServer) Shutdown() {
 
 type DiscoveryConsole struct {
 	httpServer *gin.Engine
-	ctx        context.Context
+	core       *DiscoveryCore
+	ctx        *common.ContextPole
 }
 
 func newDiscoveryConsole(cfg sys.Properties, httpServer *gin.Engine) *DiscoveryConsole {
@@ -69,8 +69,7 @@ func newDiscoveryConsole(cfg sys.Properties, httpServer *gin.Engine) *DiscoveryC
 }
 
 func (nc *DiscoveryConsole) Init(ctx *common.ContextPole) {
-	subCtx, _ := context.WithCancel(ctx)
-	nc.ctx = subCtx
+	nc.ctx = ctx.NewSubCtx()
 
 }
 
@@ -80,8 +79,9 @@ func (nc *DiscoveryConsole) Shutdown() {
 
 type DiscoverySdkAPI struct {
 	cfg    sys.Properties
-	server *rsocket.RSocketServer
-	ctx    context.Context
+	ctx    *common.ContextPole
+	server *transport.RSocketServer
+	core   *DiscoveryCore
 }
 
 func newDiscoverySdkAPI(cfg sys.Properties) *DiscoverySdkAPI {
@@ -92,43 +92,60 @@ func newDiscoverySdkAPI(cfg sys.Properties) *DiscoverySdkAPI {
 
 // 注册请求处理器
 func (na *DiscoverySdkAPI) Init(ctx *common.ContextPole) {
-	subCtx, _ := context.WithCancel(ctx)
-	na.server = rsocket.NewRSocketServer(subCtx, "POLE-DISCOVERY", na.cfg.DiscoveryPort, na.cfg.OpenSSL)
+	subCtx := ctx.NewSubCtx()
+	na.initRpcServer(subCtx)
+	na.initHttpServer(subCtx)
+}
 
-	na.server.Dispatcher.RegisterRequestResponseHandler(InstanceRegister, auth.WriteOnly, InstanceRegisterSupplier,
-		func(ctx context.Context, req proto.Message, sink mono.Sink) {
-			na.instanceRegister(ctx, req.(*pojo.InstanceRegister), sink)
-		})
-	na.server.Dispatcher.RegisterRequestResponseHandler(InstanceDeregister, auth.WriteOnly, InstanceRegisterSupplier,
-		func(ctx context.Context, req proto.Message, sink mono.Sink) {
-			na.instanceDeregister(ctx, req.(*pojo.InstanceDeregister), sink)
-		})
-	na.server.Dispatcher.RegisterRequestResponseHandler(InstanceHeartbeat, auth.WriteOnly, InstanceRegisterSupplier,
-		func(ctx context.Context, req proto.Message, sink mono.Sink) {
-			na.instanceDeregister(ctx, req.(*pojo.InstanceDeregister), sink)
-		})
-	na.server.Dispatcher.RegisterRequestResponseHandler(InstanceUpdate, auth.WriteOnly, InstanceRegisterSupplier,
-		func(ctx context.Context, req proto.Message, sink mono.Sink) {
-			na.instanceUpdate(ctx, req.(*pojo.InstanceRegister), sink)
-		})
+func (na *DiscoverySdkAPI) initRpcServer(ctx *common.ContextPole) {
+	na.server = transport.NewRSocketServer(ctx, "POLE-DISCOVERY", na.cfg.DiscoveryPort, na.cfg.OpenSSL)
+	na.server.RegisterRequestHandler(InstanceRegister, na.instanceRegister)
+	na.server.RegisterRequestHandler(InstanceDeregister, na.instanceDeregister)
+	na.server.RegisterRequestHandler(InstanceMetadataUpdate, na.instanceMetadataUpdate)
+	na.server.RegisterRequestHandler(InstanceDisabled, na.instanceDisabled)
+}
+
+func (na *DiscoverySdkAPI) initHttpServer(ctx *common.ContextPole) {
+
 }
 
 func (na *DiscoverySdkAPI) Shutdown() {
 	na.ctx.Done()
 }
 
-func (na *DiscoverySdkAPI) instanceRegister(ctx context.Context, req *pojo.InstanceRegister, sink mono.Sink) {
-
+func (na *DiscoverySdkAPI) instanceRegister(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
+	registerReq := &pojo.InstanceRegister{}
+	err := ptypes.UnmarshalAny(req.Body, registerReq)
+	if err != nil {
+		return transport.ParseErrorToResult(&common.PoleError{
+			ErrMsg: err.Error(),
+			Code:   -1,
+		})
+	}
+	return nil
 }
 
-func (na *DiscoverySdkAPI) instanceDeregister(ctx context.Context, req *pojo.InstanceDeregister, sink mono.Sink) {
-
+func (na *DiscoverySdkAPI) instanceDeregister(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
+	return nil
 }
 
-func (na *DiscoverySdkAPI) instanceHeartbeat(ctx context.Context, req *pojo.InstanceHeartBeat, sink mono.Sink) {
-
+// just for Http API
+func (na *DiscoverySdkAPI) instanceHeartbeat(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
+	return nil
 }
 
-func (na *DiscoverySdkAPI) instanceUpdate(ctx context.Context, req *pojo.InstanceRegister, sink mono.Sink) {
+func (na *DiscoverySdkAPI) instanceDisabled(ctx *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
+	registerReq := &pojo.InstanceDisabled{}
+	err := ptypes.UnmarshalAny(req.Body, registerReq)
+	if err != nil {
+		return transport.ParseErrorToResult(&common.PoleError{
+			ErrMsg: err.Error(),
+			Code:   -1,
+		})
+	}
+	return nil
+}
 
+func (na *DiscoverySdkAPI) instanceMetadataUpdate(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
+	return nil
 }

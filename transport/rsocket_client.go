@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package rsocket
+package transport
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func NewRSocketClient(label, token string, serverAddr []string, openTSL bool) *R
 	client := &RSocketClient{
 		sockets:    make(map[string]rsocket.Client),
 		token:      token,
-		dispatcher: NewDispatcher(label),
+		dispatcher: newDispatcher(label),
 	}
 
 	for _, address := range serverAddr {
@@ -46,7 +46,7 @@ func NewRSocketClient(label, token string, serverAddr []string, openTSL bool) *R
 
 			}).
 			Acceptor(func(socket rsocket.RSocket) rsocket.RSocket {
-				return rsocket.NewAbstractSocket(client.dispatcher.CreateRequestResponseSocket(), client.dispatcher.CreateRequestChannelSocket())
+				return rsocket.NewAbstractSocket(client.dispatcher.createRequestResponseSocket(), client.dispatcher.createRequestChannelSocket())
 			}).
 			Transport(func(ctx context.Context) (*transport.Transport, error) {
 				tcb := rsocket.TCPClient().SetHostAndPort(ip, int(port))

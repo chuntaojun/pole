@@ -157,7 +157,7 @@ type FileMemberLookup struct {
 }
 
 func (s *FileMemberLookup) Start() error {
-	return notify.AddWatcher(s.config.GetConfPath(), s)
+	return notify.RegisterFileWatcher(s.config.GetConfPath(), s)
 }
 
 func (s *FileMemberLookup) Observer(observer func(newMembers []*Member)) {
@@ -165,7 +165,7 @@ func (s *FileMemberLookup) Observer(observer func(newMembers []*Member)) {
 }
 
 func (s *FileMemberLookup) Shutdown() {
-	_ = notify.RemoveWatcher(s.config.GetConfPath(), s)
+	_ = notify.RemoveFileWatcher(s.config.GetConfPath(), s)
 }
 
 func (s *FileMemberLookup) Name() string {

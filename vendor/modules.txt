@@ -153,9 +153,9 @@ github.com/valyala/fastrand
 github.com/valyala/histogram
 # go.uber.org/atomic v1.7.0
 go.uber.org/atomic
-# golang.org/x/exp v0.0.0-20190426190305-956cc1757749
+# golang.org/x/exp v0.0.0-20191227195350-da58074b4299
 golang.org/x/exp/rand
-# golang.org/x/sys v0.0.0-20200615200032-f1bc736245b1
+# golang.org/x/sys v0.0.0-20200622214017-ed371f2e16b4
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
 # google.golang.org/protobuf v1.24.0

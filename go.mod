@@ -17,8 +17,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/rsocket/rsocket-go v0.7.6
 	github.com/stretchr/testify v1.6.1
-	golang.org/x/sys v0.0.0-20200615200032-f1bc736245b1 // indirect
 	golang.org/x/tools v0.0.0-20200513154647-78b527d18275 // indirect
 	google.golang.org/protobuf v1.24.0
 	gopkg.in/yaml.v2 v2.3.0
+	k8s.io/client-go v0.19.0 // indirect
 )

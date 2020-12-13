@@ -11,7 +11,7 @@ import (
 
 	"github.com/Conf-Group/pole/common"
 	"github.com/Conf-Group/pole/server/sys"
-	"github.com/Conf-Group/pole/transport/rsocket"
+	"github.com/Conf-Group/pole/transport"
 )
 
 type ConfigServer struct {
@@ -58,14 +58,14 @@ func (cc *ConfConsole) Shutdown() {
 }
 
 type ConfAPI struct {
-	server *rsocket.RSocketServer
+	server *transport.RSocketServer
 	ctx	context.Context
 }
 
 func newConfAPI(cfg sys.Properties, ctx	context.Context) *ConfAPI {
 	subCtx, _ := context.WithCancel(ctx)
 	return &ConfAPI{
-		server: rsocket.NewRSocketServer(subCtx, "CONF-CONFIG", cfg.ConfigPort, cfg.OpenSSL),
+		server: transport.NewRSocketServer(subCtx, "CONF-CONFIG", cfg.ConfigPort, cfg.OpenSSL),
 		ctx:    subCtx,
 	}
 }

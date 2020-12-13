@@ -17,6 +17,11 @@ const (
 	OR  = "or"
 )
 
+type DiscoveryCore struct {
+	serviceMgn      *ServiceManager
+	storageOperator DiscoveryStorage
+}
+
 type QueryInstance struct {
 	namespaceID string
 	serviceName string
@@ -29,7 +34,7 @@ type ServiceManager struct {
 	services map[string]map[string]*Service
 }
 
-func (sm *ServiceManager) FindService(namespaceID, serviceName string) *Service {
+func (sm *ServiceManager) findService(namespaceID, serviceName string) *Service {
 	defer sm.lock.RUnlock()
 	sm.lock.RLock()
 	if services, isOk := sm.services[namespaceID]; isOk {

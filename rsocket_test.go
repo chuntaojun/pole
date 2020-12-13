@@ -11,13 +11,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Conf-Group/pole/transport/rsocket"
-
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/rsocket/rsocket-go/payload"
 	"github.com/rsocket/rsocket-go/rx/mono"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/Conf-Group/pole/transport"
 
 	"github.com/Conf-Group/pole/pojo"
 	"github.com/Conf-Group/pole/server/auth"
@@ -33,7 +33,7 @@ func Test_RSocket(t *testing.T) {
 	<-rServer.IsReady
 	rClient := createRSocketClient([]string{"127.0.0.1:9528"})
 
-	rServer.Dispatcher.RegisterRequestResponseHandler(RequestTestOne, auth.ReadOnly, func() proto.Message {
+	rServer.dispatcher.registerRequestResponseHandler(RequestTestOne, auth.ReadOnly, func() proto.Message {
 		return &pojo.Instance{}
 	}, func(ctx context.Context, req proto.Message, sink mono.Sink) {
 		fmt.Printf("receive req %+v\n", req)
@@ -93,12 +93,12 @@ func Test_RSocket(t *testing.T) {
 	wg.Wait()
 }
 
-func createRSocketClient(serverAddr []string) *rsocket.RSocketClient {
-	return rsocket.NewRSocketClient("test", "lessspring", serverAddr, false)
+func createRSocketClient(serverAddr []string) *transport.RSocketClient {
+	return transport.NewRSocketClient("test", "lessspring", serverAddr, false)
 }
 
-func createRSocketServer(port int) *rsocket.RSocketServer {
-	return rsocket.NewRSocketServer(context.Background(), "test", int64(port), false)
+func createRSocketServer(port int) *transport.RSocketServer {
+	return transport.NewRSocketServer(context.Background(), "test", int64(port), false)
 }
 
 func Test_MonoCreateHasError(t *testing.T) {

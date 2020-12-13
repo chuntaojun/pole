@@ -124,28 +124,28 @@ func (s *ServerClusterManager) RegisterHttpHandler(group *gin.RouterGroup) []gin
 			remoteMember := &Member{}
 			err := c.BindJSON(remoteMember)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, pojo.RestResult{
+				c.JSON(http.StatusBadRequest, pojo.HttpResult{
 					Code: http.StatusBadRequest,
 					Msg:  err.Error(),
 				})
 			} else {
 				originMember := s.memberList[remoteMember.GetIdentifier()]
 				originMember.UpdateAllMetaData(remoteMember.MetaData)
-				c.JSON(http.StatusOK, pojo.RestResult{
+				c.JSON(http.StatusOK, pojo.HttpResult{
 					Code: http.StatusOK,
 					Msg:  "success",
 				})
 			}
 		}),
 		group.GET(constants.MemberListPattern, func(c *gin.Context) {
-			c.JSON(http.StatusOK, pojo.RestResult{
+			c.JSON(http.StatusOK, pojo.HttpResult{
 				Code: http.StatusOK,
 				Body: s.GetMemberList(),
 				Msg:  "success",
 			})
 		}),
 		group.GET(constants.MemberLookupNowPattern, func(c *gin.Context) {
-			c.JSON(http.StatusOK, pojo.RestResult{
+			c.JSON(http.StatusOK, pojo.HttpResult{
 				Code: http.StatusOK,
 				Body: s.lookUp.Name(),
 				Msg:  "success",
@@ -155,7 +155,7 @@ func (s *ServerClusterManager) RegisterHttpHandler(group *gin.RouterGroup) []gin
 			params := make(map[string]string)
 			err := c.BindJSON(&params)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, pojo.RestResult{
+				c.JSON(http.StatusBadRequest, pojo.HttpResult{
 					Code: http.StatusBadRequest,
 					Msg:  err.Error(),
 				})
@@ -163,13 +163,13 @@ func (s *ServerClusterManager) RegisterHttpHandler(group *gin.RouterGroup) []gin
 				val := params["lookType"]
 				newLookup, err := SwitchMemberLookupAndCloseOld(s.ctx, val, s.config, s.lookUp, s.MemberChange)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, pojo.RestResult{
+					c.JSON(http.StatusInternalServerError, pojo.HttpResult{
 						Code: http.StatusInternalServerError,
 						Msg:  err.Error(),
 					})
 				} else {
 					s.lookUp = newLookup
-					c.JSON(http.StatusOK, pojo.RestResult{
+					c.JSON(http.StatusOK, pojo.HttpResult{
 						Code: http.StatusOK,
 						Msg:  "success",
 					})
@@ -189,7 +189,7 @@ func (s *ServerClusterManager) FindMember(ip string, port int) (*Member, bool) {
 	defer s.lock.RUnlock()
 	s.lock.RLock()
 
-	key := ip + string(port)
+	key := ip + fmt.Sprintf("%d", port)
 	m, exist := s.memberList[key]
 
 	return m, exist

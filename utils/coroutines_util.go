@@ -48,5 +48,14 @@ func DoTickerSchedule(ctx context.Context, work func(), delay time.Duration) {
 }
 
 type HashTimeWheel struct {
+	tickDuration  time.Duration
+	ticksPerWheel int32
+}
 
+func (htw *HashTimeWheel) Start()  {
+	
+}
+
+type Timeout interface {
+	Run()
 }
