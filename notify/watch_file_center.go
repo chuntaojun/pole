@@ -133,7 +133,7 @@ func (w *WatcherCenter) start() {
 	})
 }
 
-func AddWatcher(path string, watcher ...FileWatcher) error {
+func RegisterFileWatcher(path string, watcher ...FileWatcher) error {
 	defer watcherCenter.lock.Unlock()
 	watcherCenter.lock.Lock()
 
@@ -150,7 +150,7 @@ func AddWatcher(path string, watcher ...FileWatcher) error {
 	return err
 }
 
-func RemoveWatcher(path string, watcher ...FileWatcher) error {
+func RemoveFileWatcher(path string, watcher ...FileWatcher) error {
 	defer watcherCenter.lock.Unlock()
 	watcherCenter.lock.Lock()
 

@@ -1,10 +1,12 @@
 package main
 
-import "context"
+import (
+	"github.com/Conf-Group/pole/common"
+)
 
 type LifeCycle interface {
 
-	Init(ctx context.Context)
+	Init(ctx *common.ContextPole)
 
 	Shutdown()
 

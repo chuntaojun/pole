@@ -36,7 +36,6 @@ func RowMap(table string, result map[string]interface{}) interface{} {
 	panic(ErrorNotRegister)
 }
 
-
 type SQLRequest struct {
 	SQL  string
 	Args []interface{}

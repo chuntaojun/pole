@@ -1,12 +1,14 @@
 package core
 
-import "context"
+import (
+	"github.com/Conf-Group/pole/common"
+)
 
 type DistroProtocol struct {
 
 }
 
-func (dp *DistroProtocol) Init(ctx context.Context)  {
+func (dp *DistroProtocol) Init(ctx *common.ContextPole)  {
 
 }
 
@@ -17,7 +19,7 @@ type DistroCore struct {
 
 }
 
-func (dc *DistroCore) Init(ctx context.Context)  {
+func (dc *DistroCore) Init(ctx *common.ContextPole)  {
 
 }
 

@@ -2,12 +2,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package rsocket
+package transport
 
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"net"
 	"reflect"
 	"sync"
@@ -16,43 +15,28 @@ import (
 	"github.com/rsocket/rsocket-go/core/transport"
 	"github.com/rsocket/rsocket-go/payload"
 
-	"github.com/Conf-Group/pole/auth"
+	"github.com/Conf-Group/pole/common"
 )
 
 type RSocketServer struct {
 	IsReady    chan struct{}
-	Dispatcher *Dispatcher
+	dispatcher *Dispatcher
 	ConnMgr    *ConnManager
-	security   *auth.SecurityCenter
 }
 
-func NewRSocketServer(ctx context.Context, label string, port int64, center *auth.SecurityCenter, openTSL bool) *RSocketServer {
-	subCtx, _ := context.WithCancel(ctx)
+func (rs *RSocketServer) RegisterRequestHandler(path string, handler ServerHandler)  {
+	rs.dispatcher.registerRequestResponseHandler(path, handler)
+}
 
+func (rs *RSocketServer) RegisterStreamRequestHandler(path string, handler ServerHandler) {
+	rs.dispatcher.registerRequestChannelHandler(path, handler)
+}
+
+func NewRSocketServer(ctx *common.ContextPole, label string, port int64, openTSL bool) *RSocketServer {
 	r := RSocketServer{
 		IsReady:    make(chan struct{}),
-		Dispatcher: NewDispatcher(label),
-		security:   center,
+		dispatcher: newDispatcher(label),
 	}
-
-	r.Dispatcher.RegisterFilter(func(req RSocketRequest) error {
-		metadata, ok := req.Msg.Metadata()
-		if ok {
-			var header map[string]string
-			err := json.Unmarshal(metadata, &header)
-			if err != nil {
-				return err
-			}
-
-			if r.security != nil {
-				ok, err := r.security.HasPermission(header, req.Op)
-				if !ok {
-					return err
-				}
-			}
-		}
-		return nil
-	})
 
 	go func(rServer *RSocketServer) {
 		server := rsocket.Receive().
@@ -60,7 +44,7 @@ func NewRSocketServer(ctx context.Context, label string, port int64, center *aut
 				close(r.IsReady)
 			}).
 			Acceptor(func(setup payload.SetupPayload, sendingSocket rsocket.CloseableRSocket) (socket rsocket.RSocket, err error) {
-				return rsocket.NewAbstractSocket(r.Dispatcher.CreateRequestResponseSocket(), r.Dispatcher.CreateRequestChannelSocket()), nil
+				return rsocket.NewAbstractSocket(r.dispatcher.createRequestResponseSocket(), r.dispatcher.createRequestChannelSocket()), nil
 			}).
 			Transport(func(ctx context.Context) (transport.ServerTransport, error) {
 				serverTransport := transport.NewTCPServerTransport(func(ctx context.Context) (net.Listener, error) {
@@ -82,7 +66,7 @@ func NewRSocketServer(ctx context.Context, label string, port int64, center *aut
 				return &poleServerTransport{rServer: rServer, target: serverTransport}, nil
 			})
 
-		if err := server.Serve(subCtx); err != nil {
+		if err := server.Serve(ctx); err != nil {
 			panic(err)
 		}
 	}(&r)
@@ -124,7 +108,7 @@ func (p *poleServerTransport) Accept(acceptor transport.ServerTransportAcceptor)
 		p.rServer.ConnMgr.PutConn(tp.Connection())
 
 		wrapperOnClose := func(tp *transport.Transport) {
-			p.rServer.ConnMgr.PutConn()
+			p.rServer.ConnMgr.PutConn(tp.Connection())
 			onClose(tp)
 		}
 

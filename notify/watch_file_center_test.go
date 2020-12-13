@@ -60,7 +60,7 @@ func Test_WatchFileCreate(t *testing.T) {
 	InitWatcherCenter()
 	utils.MkdirIfNotExist(TestHome, os.ModePerm)
 	fmt.Printf(TestHome + "\n")
-	err := watcherCenter.AddWatcher(TestHome, &FileWatcherCreate{t: t, wait: &wait})
+	err := RegisterFileWatcher(TestHome, &FileWatcherCreate{t: t, wait: &wait})
 	if err != nil {
 		t.Error(err)
 		return
