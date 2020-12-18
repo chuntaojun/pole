@@ -11,6 +11,7 @@ import (
 	"math"
 	"sync"
 
+	"github.com/Conf-Group/pole/common"
 	"github.com/Conf-Group/pole/utils"
 )
 
@@ -270,8 +271,9 @@ type Publisher struct {
 
 func (p *Publisher) start() {
 	p.init.Do(func() {
-		ctx := context.WithValue(context.Background(), utils.TraceIDKey, p.topic)
-		utils.Go(ctx, func(cxt context.Context) {
+		ctx := common.NewCtxPole()
+		ctx.Write(utils.TraceIDKey, p.topic)
+		utils.Go(ctx, func(ctx *common.ContextPole) {
 			p.openHandler(ctx)
 		})
 	})
@@ -349,8 +351,9 @@ type SharePublisher struct {
 
 func (sp *SharePublisher) start() {
 	sp.init.Do(func() {
-		ctx := context.WithValue(context.Background(), utils.TraceIDKey, sp.topic)
-		utils.Go(ctx, func(ctx context.Context) {
+		ctx := common.NewCtxPole()
+		ctx.Write(utils.TraceIDKey, sp.topic)
+		utils.Go(ctx, func(ctx *common.ContextPole) {
 			sp.openHandler(ctx)
 		})
 	})

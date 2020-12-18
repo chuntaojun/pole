@@ -101,9 +101,9 @@ func (s *SecurityCenter) startTokenRefresh() {
 	}, time.Duration(30)*time.Second)
 }
 
-func (s *SecurityCenter) HasPermission(header map[string]string, op OperationType) (bool, error) {
-	token := header[constants.TokenKey]
-	resource := s.buildResource(header)
+func (s *SecurityCenter) HasPermission(metadata map[string]string, op OperationType) (bool, error) {
+	token := metadata[constants.TokenKey]
+	resource := s.buildResource(metadata)
 	// Judge whether token exists
 	if role, exist := s.tokenMap[token]; exist {
 		return s.authFilter(resource, role, op)

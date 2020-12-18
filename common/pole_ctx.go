@@ -20,6 +20,18 @@ type ContextPole struct {
 	Values map[interface{}]interface{}
 }
 
+func NewCtxPole() *ContextPole {
+	return &ContextPole{
+		parent: nil,
+		ctx:    context.Background(),
+		Values: make(map[interface{}]interface{}),
+	}
+}
+
+func (c *ContextPole) Write(key, value interface{}) {
+	c.Values[key] = value
+}
+
 func (c *ContextPole) Deadline() (deadline time.Time, ok bool) {
 	return c.ctx.Deadline()
 }

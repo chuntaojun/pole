@@ -18,6 +18,8 @@ The Golang version of [alibaba/nacos](https://github.com/alibaba/nacos), and car
 - [ ] Console的实现
 - [ ] 配置内容的传输加密
 - [ ] 更简单的权限控制机制, 将SDK的权限和Console的权限分离
+  - [ ] 控制台白名单机制(使用正则匹配模式)
+  - [ ] 客户端使用令牌机制进行授权  
 - [ ] 更加友好的运维体验
 - [ ] 云原生的运维、部署体验
 - [ ] 多种集群节点发现的模式，除了`Alibaba/Nacos`的文件以及地址中心之外，额外基于`Kubernetes-Client-Api`的集群节点管理方式

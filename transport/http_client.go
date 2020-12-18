@@ -16,12 +16,31 @@ import (
 	"github.com/Conf-Group/pole/pojo"
 )
 
-// http 客户端
-type HttpClient struct {
-}
+var defaultHttpClient *HttpClient
 
 func init() {
-	http.DefaultClient.Timeout = time.Duration(10) * time.Second
+	defaultHttpClient = NewHttpClient()
+}
+
+// http 客户端
+type HttpClient struct {
+	client *http.Client
+}
+
+func NewDefaultClient() *HttpClient {
+	return defaultHttpClient
+}
+
+func NewHttpClient() *HttpClient {
+	return &HttpClient{client: &http.Client{
+		Transport: &http.Transport{
+			MaxIdleConns:          1200,            // 连接池中最大连接数
+			MaxIdleConnsPerHost:   300,             // 连接池中每个ip的最大连接数
+			TLSHandshakeTimeout:   5 * time.Second, // 限制TLS握手的时间
+			ResponseHeaderTimeout: 5 * time.Second, // 限制读取response header的超时时间
+			IdleConnTimeout:       90 * time.Second,
+		},
+	}}
 }
 
 // get 请求
@@ -47,21 +66,21 @@ func (hc *HttpClient) Get(ctx *common.ContextPole, server, url string, params pr
 		return nil, err
 	}
 	//http client
-	return sendRequest(req)
+	return hc.sendRequest(req)
 }
 
 // post 请求
 func (hc *HttpClient) Post(ctx *common.ContextPole, server, url string, body *pojo.ServerRequest,
 	headers map[string]string) (*pojo.ServerResponse, error) {
 	//add post body
-	return submit(ctx, server, url, http.MethodPost, body, headers)
+	return hc.submit(ctx, server, url, http.MethodPost, body, headers)
 }
 
 // put 请求
 func (hc *HttpClient) Put(ctx *common.ContextPole, server, url string,
 	body proto.Message, headers map[string]string) (*pojo.ServerResponse, error) {
 	//add put body
-	return submit(ctx, server, url, http.MethodPut, body, headers)
+	return hc.submit(ctx, server, url, http.MethodPut, body, headers)
 }
 
 // 同时向多个 server 顺序发起 get 请求，其中一个成功就立即结束
@@ -102,7 +121,7 @@ func (hc *HttpClient) PutWithServerList(ctx *common.ContextPole, servers []strin
 }
 
 // post 以及 put 请求的真正实现
-func submit(ctx *common.ContextPole, server, url, method string, body proto.Message,
+func (hc *HttpClient) submit(ctx *common.ContextPole, server, url, method string, body proto.Message,
 	headers map[string]string) (*pojo.ServerResponse, error) {
 
 	//add post body
@@ -133,12 +152,12 @@ func submit(ctx *common.ContextPole, server, url, method string, body proto.Mess
 	if err := req.Write(bytes.NewBuffer(sReqBytes)); err != nil {
 		return nil, err
 	}
-	return sendRequest(req)
+	return hc.sendRequest(req)
 }
 
-func sendRequest(req *http.Request) (*pojo.ServerResponse, error) {
+func (hc *HttpClient) sendRequest(req *http.Request) (*pojo.ServerResponse, error) {
 	//http client
-	hResp, err := http.DefaultClient.Do(req)
+	hResp, err := hc.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
