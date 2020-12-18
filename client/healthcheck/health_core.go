@@ -18,6 +18,16 @@ import (
 
 type CustomerHealthChecker func() bool
 
+type customerTimeF struct {
+	task	*CustomerHealthCheckTask
+}
+
+func (ctf *customerTimeF) Run()  {
+	if !ctf.task.F() {
+		// TODO 当前实例的健康状态为非健康
+	}
+}
+
 type CustomHealthCheckPlugin struct {
 	rwLock         sync.RWMutex
 	htw            *utils.HashTimeWheel
@@ -42,6 +52,7 @@ func (h *CustomHealthCheckPlugin) AddTask(task HealthCheckTask) (bool, error) {
 	defer h.rwLock.Unlock()
 	h.rwLock.Lock()
 	h.taskRepository[fmt.Sprintf("%s:%d", cTask.Instance.Ip, cTask.Instance.Port)] = cTask
+	h.htw.AddTask(&customerTimeF{task: cTask}, time.Duration(5) * time.Second)
 	return true, nil
 }
 
