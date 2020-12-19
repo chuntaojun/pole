@@ -11,16 +11,15 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/rsocket/rsocket-go/payload"
+	"github.com/jjeffcaii/reactor-go"
 	"github.com/rsocket/rsocket-go/rx/mono"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/Conf-Group/pole/common"
 	"github.com/Conf-Group/pole/transport"
 
 	"github.com/Conf-Group/pole/pojo"
-	"github.com/Conf-Group/pole/server/auth"
 )
 
 const (
@@ -31,25 +30,16 @@ const (
 func Test_RSocket(t *testing.T) {
 	rServer := createRSocketServer(9528)
 	<-rServer.IsReady
-	rClient := createRSocketClient([]string{"127.0.0.1:9528"})
+	rClient := createRSocketClient("127.0.0.1:9528")
 
-	rServer.dispatcher.registerRequestResponseHandler(RequestTestOne, auth.ReadOnly, func() proto.Message {
-		return &pojo.Instance{}
-	}, func(ctx context.Context, req proto.Message, sink mono.Sink) {
+	rServer.RegisterRequestHandler(RequestTestOne, func(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
 		fmt.Printf("receive req %+v\n", req)
-		resp := &pojo.ServerResponse{
-			Label: RequestTestOne,
-			Header: map[string]string{
-				"Name": "Liaochuntao",
-			},
+		resp := &pojo.RestResult{
+			Code: 0,
+			Msg:  "this is test",
+			Body: nil,
 		}
-
-		body, err := proto.Marshal(resp)
-		if err != nil {
-			panic(err)
-		}
-
-		sink.Success(payload.New(body, []byte("lessspring")))
+		return resp
 	})
 
 	instance := &pojo.Instance{
@@ -77,28 +67,31 @@ func Test_RSocket(t *testing.T) {
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 
-	rClient.SendRequest("127.0.0.1:9528", req).DoOnSuccess(func(input payload.Payload) error {
-		resp := &pojo.ServerResponse{}
-		err := proto.Unmarshal(input.Data(), resp)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Printf("receive resp : %s\n", resp)
-		wg.Done()
-		return nil
-	}).DoOnError(func(e error) {
-		fmt.Printf("receive resp has error %s\n", e)
-	}).Subscribe(context.Background())
+	m, err := rClient.Request(req)
+	if err != nil {
+		t.Error(err)
+	} else {
+		m.DoOnNext(func(v reactor.Any) error {
+			resp := v.(*pojo.ServerResponse)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("receive resp : %s\n", resp)
+			wg.Done()
+			return nil
+		}).Subscribe(context.TODO())
+	}
 
 	wg.Wait()
+
 }
 
-func createRSocketClient(serverAddr []string) *transport.RSocketClient {
-	return transport.NewRSocketClient("test", "lessspring", serverAddr, false)
+func createRSocketClient(serverAddr string) *transport.RSocketClient {
+	return transport.newRSocketClient(serverAddr, false)
 }
 
 func createRSocketServer(port int) *transport.RSocketServer {
-	return transport.NewRSocketServer(context.Background(), "test", int64(port), false)
+	return transport.NewRSocketServer(common.NewCtxPole(), "test", int64(port), false)
 }
 
 func Test_MonoCreateHasError(t *testing.T) {

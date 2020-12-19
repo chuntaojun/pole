@@ -14,6 +14,10 @@ const (
 	RequestID   = "Request-ID"
 )
 
+var (
+	EmptyContext = NewCtxPole()
+)
+
 type ContextPole struct {
 	parent *ContextPole
 	ctx    context.Context

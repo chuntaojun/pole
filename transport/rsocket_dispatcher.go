@@ -18,6 +18,7 @@ import (
 	"github.com/rsocket/rsocket-go/rx/mono"
 
 	"github.com/Conf-Group/pole/common"
+	"github.com/Conf-Group/pole/constants"
 	"github.com/Conf-Group/pole/pojo"
 )
 
@@ -72,7 +73,7 @@ func (r *Dispatcher) createRequestResponseSocket() rsocket.OptAbstractSocket {
 				if err != nil {
 					sink.Error(err)
 				} else {
-					sink.Success(payload.New(bs, []byte("")))
+					sink.Success(payload.New(bs, constants.EmptyBytes))
 				}
 			}).DoOnError(func(e error) {
 				fmt.Printf("an exception occurred while processing the request %s\n", err)
@@ -105,7 +106,7 @@ func (r *Dispatcher) createRequestChannelSocket() rsocket.OptAbstractSocket {
 						if err != nil {
 							sink.Error(err)
 						} else {
-							sink.Next(payload.New(bs, []byte("")))
+							sink.Next(payload.New(bs, constants.EmptyBytes))
 						}
 						return nil
 					} else {
@@ -121,12 +122,7 @@ func (r *Dispatcher) createRequestChannelSocket() rsocket.OptAbstractSocket {
 }
 
 func (r *Dispatcher) registerRequestResponseHandler(key string, handler ServerHandler) {
-	defer func() {
-		r.lock.Unlock()
-		if err := recover(); err != nil {
-			fmt.Printf("register rep&resp handler has error %s\n", err)
-		}
-	}()
+	defer r.lock.Unlock()
 	r.lock.Lock()
 
 	if _, ok := r.reqRespHandler[key]; ok {

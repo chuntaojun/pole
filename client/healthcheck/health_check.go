@@ -5,6 +5,8 @@
 package healthcheck
 
 import (
+	"fmt"
+
 	"github.com/Conf-Group/pole/common"
 	"github.com/Conf-Group/pole/plugin"
 	"github.com/Conf-Group/pole/pojo"
@@ -28,10 +30,14 @@ type HealthCheckPlugin interface {
 type HealthCheckTask interface {
 }
 
-type HttpHealthCheckTask struct {
+type HttpCodeCheckTask struct {
 	Instance   pojo.Instance
 	CheckPath  string
 	ExpectCode int32
+}
+
+type HeartbeatCheckTask struct {
+	Instance pojo.Instance
 }
 
 type TcpHealthCheckTask struct {
@@ -49,22 +55,25 @@ type HealthCheckManager struct {
 
 func (hcm *HealthCheckManager) Init(ctx *common.ContextPole) {
 	_, _ = plugin.RegisterPlugin(ctx, &TcpHealthCheckPlugin{})
-	_, _ = plugin.RegisterPlugin(ctx, &HttpBeatHealthCheckPlugin{})
+	_, _ = plugin.RegisterPlugin(ctx, &ConnectionBeatHealthCheckPlugin{})
+	_, _ = plugin.RegisterPlugin(ctx, &HttpCodeHealthCheckPlugin{})
 	_, _ = plugin.RegisterPlugin(ctx, &CustomHealthCheckPlugin{})
 }
 
 func (hcm *HealthCheckManager) RegisterHealthCheckTask(task HealthCheckTask) (bool, error) {
 	var checker HealthCheckPlugin
 	switch task.(type) {
-	case HttpHealthCheckTask:
-		checker = plugin.GetPluginByName(HealthCheck_Http).(*HttpBeatHealthCheckPlugin)
+	case HttpCodeCheckTask:
+		checker = plugin.GetPluginByName(HealthCheck_Http).(*HttpCodeHealthCheckPlugin)
 	case TcpHealthCheckTask:
 		checker = plugin.GetPluginByName(HealthCheck_Tcp).(*TcpHealthCheckPlugin)
 	case CustomerHealthCheckTask:
 		checker = plugin.GetPluginByName(HealthCheck_Customer).(*CustomHealthCheckPlugin)
-	default:
+	case HeartbeatCheckTask:
 		// 走 Heartbeat 的模式
-		checker = plugin.GetPluginByName(HealthCheck_Heartbeat).(*HttpBeatHealthCheckPlugin)
+		checker = plugin.GetPluginByName(HealthCheck_Heartbeat).(*ConnectionBeatHealthCheckPlugin)
+	default:
+		return false, fmt.Errorf("unsupport this check task : %s", task)
 	}
 	return checker.AddTask(task)
 }
