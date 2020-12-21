@@ -90,16 +90,22 @@ func (h *CustomHealthCheckPlugin) Destroy() {
 // 基于链接心跳包的检查
 type heartbeatTask struct {
 	task   *HeartbeatCheckTask
+	owner  *ConnectionBeatHealthCheckPlugin
 	cancel int32
 }
 
 func (hbt *heartbeatTask) Run() {
-
+	defer func() {
+		if atomic.LoadInt32(&hbt.cancel) == 1 {
+			return
+		}
+		hbt.owner.htw.AddTask(hbt, time.Duration(5)*time.Second)
+	}()
 }
 
 type ConnectionBeatHealthCheckPlugin struct {
 	owner          *HealthCheckManager
-	client         *transport.HttpClient
+	client         transport.TransportClient
 	rwLock         sync.RWMutex
 	htw            *utils.HashTimeWheel
 	taskRepository map[string]*heartbeatTask
@@ -110,7 +116,6 @@ func (h *ConnectionBeatHealthCheckPlugin) Name() string {
 }
 
 func (h *ConnectionBeatHealthCheckPlugin) Init(ctx *common.ContextPole) {
-	h.client = transport.NewHttpClient(false)
 	h.taskRepository = make(map[string]*heartbeatTask)
 	h.htw = utils.NewTimeWheel(time.Duration(5)*time.Second, 16)
 }
@@ -127,6 +132,7 @@ func (h *ConnectionBeatHealthCheckPlugin) AddTask(task HealthCheckTask) (bool, e
 	ht := &heartbeatTask{
 		task:   httpTask,
 		cancel: 0,
+		owner: h,
 	}
 
 	h.taskRepository[fmt.Sprintf("%s:%d", httpTask.Instance.Ip, httpTask.Instance.Port)] = ht
@@ -155,12 +161,33 @@ func (h *ConnectionBeatHealthCheckPlugin) Destroy() {
 
 // HTTP 返回码检测
 type httpCodeTask struct {
+	owner  *HttpCodeHealthCheckPlugin
 	task   *HttpCodeCheckTask
 	cancel int32
 }
 
 func (hct *httpCodeTask) Run() {
+	defer func() {
+		if atomic.LoadInt32(&hct.cancel) == 1 {
+			return
+		}
+		hct.owner.htw.AddTask(hct, time.Duration(5)*time.Second)
+	}()
 
+	hClient := hct.owner.client
+
+	req, err := http.NewRequest("GET", utils.BuildHttpsUrl(hct.task.Instance.Ip, hct.task.CheckPath,
+		uint64(hct.task.Instance.Port)), nil)
+	if err != nil {
+		// 不健康
+		return
+	}
+
+	resp, err := hClient.Do(req)
+	if err != nil || resp.StatusCode != hct.task.ExpectCode {
+		// 不健康
+		return
+	}
 }
 
 type HttpCodeHealthCheckPlugin struct {
@@ -203,6 +230,7 @@ func (hch *HttpCodeHealthCheckPlugin) AddTask(task HealthCheckTask) (bool, error
 	ht := &httpCodeTask{
 		task:   htTask,
 		cancel: 0,
+		owner:  hch,
 	}
 
 	hch.taskRepository[servAddr] = ht
@@ -225,7 +253,7 @@ func (hch *HttpCodeHealthCheckPlugin) RemoveTask(task HealthCheckTask) (bool, er
 }
 
 func (hch *HttpCodeHealthCheckPlugin) Destroy() {
-
+	hch.htw.Stop()
 }
 
 // TCP 健康检查

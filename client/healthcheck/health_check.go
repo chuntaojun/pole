@@ -33,7 +33,7 @@ type HealthCheckTask interface {
 type HttpCodeCheckTask struct {
 	Instance   pojo.Instance
 	CheckPath  string
-	ExpectCode int32
+	ExpectCode int
 }
 
 type HeartbeatCheckTask struct {
