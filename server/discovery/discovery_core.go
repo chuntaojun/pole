@@ -5,11 +5,10 @@
 package discovery
 
 import (
-	"strconv"
+	"fmt"
 	"sync"
-	"sync/atomic"
 
-	"github.com/Conf-Group/pole/utils"
+	"github.com/Conf-Group/pole/pojo"
 )
 
 const (
@@ -34,6 +33,55 @@ type ServiceManager struct {
 	services map[string]map[string]*Service
 }
 
+func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister) *pojo.RestResult {
+	namespaceId := req.NamespaceId
+	serviceName := req.Instance.ServiceName
+	groupName := req.Instance.Group
+
+	name := fmt.Sprintf("%s@@%s", serviceName, groupName)
+	sm.createServiceIfAbsent(namespaceId, name)
+
+	clusterName := req.Instance.ClusterName
+	key := fmt.Sprintf("%s#%s#%s#%s#%d", serviceName, groupName, clusterName, req.GetInstance().Ip,
+		req.GetInstance().Port)
+
+	instance, metadata := parseToInstance(key, req.Instance)
+
+	cluster := sm.services[namespaceId][name].Clusters[clusterName]
+	if cluster == nil {
+		return &pojo.RestResult{
+			Code: -1,
+			Msg:  fmt.Sprintf("Cluster : %s not exist in service : %s, namespace : %s", clusterName, name, namespaceId),
+		}
+	}
+
+	if ri := cluster.FindRandom(); !isEmptyInstance(ri) && ri.temporary != instance.temporary {
+		return &pojo.RestResult{
+			Code: 0,
+			Msg:  "A service can only be a persistent or non-persistent instance",
+		}
+	}
+
+	return sm.storeInstanceInfo(cluster, instance, metadata)
+}
+
+func (sm *ServiceManager) createServiceIfAbsent(namespaceId, serviceName string) {
+	sm.lock.Lock()
+	if _, exist := sm.services[namespaceId]; !exist {
+		sm.services[namespaceId] = make(map[string]*Service)
+		if _, exist := sm.services[namespaceId][serviceName]; !exist {
+			sm.services[namespaceId][serviceName] = &Service{
+				clusterLock: sync.RWMutex{},
+				labelLock:   sync.RWMutex{},
+				ServiceName: serviceName,
+				Clusters:    make(map[string]*Cluster),
+			}
+		}
+	}
+
+	sm.lock.Unlock()
+}
+
 func (sm *ServiceManager) findService(namespaceID, serviceName string) *Service {
 	defer sm.lock.RUnlock()
 	sm.lock.RLock()
@@ -50,144 +98,8 @@ func (sm *ServiceManager) SelectInstances(query QueryInstance) []Instance {
 	return nil
 }
 
-type ServiceMetadata struct {
-	ServiceName string
-	metadata    map[string]string
-	// consumer.label.{key}=provider.label.{key}
-	LabelRules map[string]string
+func (sm *ServiceManager) storeInstanceInfo(cluster *Cluster, instance Instance, metadata InstanceMetadata) *pojo.RestResult {
+	cluster.AddInstance(instance, metadata)
+	return nil
 }
 
-type Service struct {
-	clusterLock sync.RWMutex
-	labelLock   sync.RWMutex
-	ServiceName string
-	Clusters    map[string]*Cluster
-}
-
-func (s *Service) FindInstance(clusterName, key string) Instance {
-	return s.Clusters[clusterName].FindInstance(key)
-}
-
-type ClusterMetadata struct {
-	ClusterName string
-	metadata    map[string]string
-}
-
-type Cluster struct {
-	tmpLock    sync.RWMutex
-	perLock    sync.RWMutex
-	Name       string
-	Temporary  map[string]Instance
-	Persistent map[string]Instance
-	metadata   atomic.Value
-}
-
-func (c *Cluster) FindInstance(key string) Instance {
-	if instance, isOk := c.Temporary[key]; isOk {
-		return instance
-	}
-	return c.Persistent[key]
-}
-
-func (c *Cluster) AddInstance(isTemp bool, instance Instance) {
-	lock := utils.IF(isTemp, &c.tmpLock, &c.perLock).(*sync.RWMutex)
-	instances := utils.IF(isTemp, &c.Temporary, &c.Persistent).(map[string]Instance)
-	defer lock.Unlock()
-	lock.Lock()
-	instances[instance.GetKey()] = instance
-}
-
-func (c *Cluster) RemoveInstance(isTemp bool, instance Instance) {
-	lock := utils.IF(isTemp, &c.tmpLock, &c.perLock).(*sync.RWMutex)
-	instances := utils.IF(isTemp, &c.Temporary, &c.Persistent).(map[string]Instance)
-	defer lock.Unlock()
-	lock.Lock()
-	delete(instances, instance.GetKey())
-}
-
-func (c *Cluster) Seek(isTemp bool, consumer func(instance Instance)) {
-	lock := utils.IF(isTemp, &c.tmpLock, &c.perLock).(*sync.RWMutex)
-	defer lock.RUnlock()
-	lock.RLock()
-	for _, v := range utils.IF(isTemp, &c.Temporary, &c.Persistent).(map[string]Instance) {
-		consumer(v)
-	}
-}
-
-func (c *Cluster) UpdateMetadata(metadata map[string]string) {
-	c.metadata.Store(metadata)
-}
-
-func (c *Cluster) GetMetadata() map[string]string {
-	return c.metadata.Load().(map[string]string)
-}
-
-type InstanceMetadata struct {
-	key      string
-	metadata map[string]string
-}
-
-func (i InstanceMetadata) GetKey() string {
-	return i.key
-}
-
-func (i InstanceMetadata) UpdateMetadata(newMetadata map[string]string) {
-	i.metadata = newMetadata
-}
-
-func (i InstanceMetadata) GetMetadata(key string) string {
-	return i.metadata[key]
-}
-
-type Instance struct {
-	key       string
-	host      string
-	port      int64
-	weight    float64
-	enabled   bool
-	healthy   bool
-	temporary bool
-}
-
-func (i Instance) GetIP() string {
-	return i.host
-}
-
-func (i Instance) GetPort() int64 {
-	return i.port
-}
-
-func (i Instance) SetWeight(wright float64) {
-	i.weight = wright
-}
-
-func (i Instance) GetWeight() float64 {
-	return i.weight
-}
-
-func (i Instance) SetEnabled(enabled bool) {
-	i.enabled = enabled
-}
-
-func (i Instance) IsTemporary() bool {
-	return i.temporary
-}
-
-func (i Instance) IsEnabled() bool {
-	return i.enabled
-}
-
-func (i Instance) SetHealthy(healthy bool) {
-	i.healthy = healthy
-}
-
-func (i Instance) IsHealthy() bool {
-	return i.healthy
-}
-
-func (i Instance) GetKey() string {
-	if i.key == "" {
-		i.key = i.host + ":" + strconv.FormatInt(i.port, 10)
-	}
-	return i.key
-}

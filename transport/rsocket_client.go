@@ -7,7 +7,6 @@ package transport
 import (
 	"context"
 	"crypto/tls"
-	"sync"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/jjeffcaii/reactor-go"
@@ -25,14 +24,13 @@ import (
 
 type RSocketClient struct {
 	socket  rsocket.Client
-	rwLock  sync.RWMutex
-	filters []func(req *pojo.ServerRequest)
+	bc	*baseTransportClient
 }
 
-func newRSocketClient(serverAddr string, openTSL bool) *RSocketClient {
+func newRSocketClient(serverAddr string, openTSL bool) (*RSocketClient, error) {
 
 	client := &RSocketClient{
-		filters: make([]func(req *pojo.ServerRequest), 0, 0),
+		bc: newBaseClient(),
 	}
 
 	ip, port := utils.AnalyzeIPAndPort(serverAddr)
@@ -48,26 +46,17 @@ func newRSocketClient(serverAddr string, openTSL bool) *RSocketClient {
 			return tcb.Build()(ctx)
 		}).
 		Start(context.Background())
-	if err != nil {
-		panic(err)
-	}
 
 	client.socket = c
-	return client
+	return client, err
 }
 
 func (c *RSocketClient) AddChain(filter func(req *pojo.ServerRequest)) {
-	defer c.rwLock.Unlock()
-	c.rwLock.Lock()
-	c.filters = append(c.filters, filter)
+	c.bc.AddChain(filter)
 }
 
 func (c *RSocketClient) Request(req *pojo.ServerRequest) (mono2.Mono, error) {
-	c.rwLock.RLock()
-	for _, filter := range c.filters {
-		filter(req)
-	}
-	c.rwLock.RUnlock()
+	c.bc.DoFilter(req)
 
 	body, err := proto.Marshal(req)
 	if err != nil {
@@ -92,11 +81,7 @@ func (c *RSocketClient) RequestChannel(call func(resp *pojo.ServerResponse, err 
 		_sink = sink
 	}).Map(func(any reactor.Any) (reactor.Any, error) {
 		req := any.(*pojo.ServerRequest)
-		c.rwLock.RLock()
-		for _, filter := range c.filters {
-			filter(req)
-		}
-		c.rwLock.RUnlock()
+		c.bc.DoFilter(req)
 		body, err := proto.Marshal(req)
 		if err != nil {
 			return nil, err
@@ -115,4 +100,8 @@ func (c *RSocketClient) RequestChannel(call func(resp *pojo.ServerResponse, err 
 		call(nil, e)
 	})
 	return _sink
+}
+
+func (c *RSocketClient) Close() error {
+	return nil
 }

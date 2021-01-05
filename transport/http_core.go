@@ -72,7 +72,11 @@ func (hc *HttpClient) submit(ctx *common.ContextPole, server, url, method string
 			return nil, fmt.Errorf("http post body to json failed")
 		}
 	}
-	finalUrl := utils.IF(hc.openSSL, BuildHttpsUrl(server, url), BuildHttpUrl(server, url)).(string)
+	finalUrl := utils.IF(hc.openSSL, func() interface{} {
+		return BuildHttpsUrl(server, url)
+	}, func() interface{} {
+		return BuildHttpUrl(server, url)
+	}).(string)
 	req, err := http.NewRequestWithContext(ctx, method, finalUrl, bytes.NewBuffer(bodyJson))
 	if err != nil {
 		return nil, fmt.Errorf("new request is fail: %v", err)

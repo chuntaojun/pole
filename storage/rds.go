@@ -12,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	
+
 	_ "github.com/mattn/go-sqlite3" // nolint:golint
 
 	"github.com/Conf-Group/pole/server/sys"
@@ -69,28 +69,36 @@ func (s ModifyReqs) Swap(i, j int) {
 
 type Rds interface {
 	DB() *sql.DB
-	
+
 	initDB(f func(db *sql.DB))
-	
+
 	ExecuteQuery(ctx context.Context, query QueryRequest) (results []map[string]interface{}, err error)
-	
+
 	ExecuteModify(ctx context.Context, reqs ModifyReqs) (err error)
-	
+
 	Transaction(ctx context.Context, f func(db *sql.DB) error) error
 }
 
-func CreateRds(cfg *sys.Properties, initialize func(db *sql.DB)) Rds {
+func CreateRds(cfg *sys.Properties, initialize func(db *sql.DB)) (Rds, error) {
 	if cfg.IsEmbedded {
 		utils.MkdirAllIfNotExist(cfg.GetDataPath(), os.ModePerm)
 		db, err := sql.Open("sqlite3", filepath.Join(cfg.GetDataPath(), "conf.db"))
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		rds := &EmbeddedRDS{db: db}
 		rds.initDB(initialize)
-		return rds
+		return rds, nil
 	} else {
-		return &ExternalRDS{}
+		db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", cfg.DbCfg.User, cfg.DbCfg.Password, cfg.DbCfg.DbHost,
+			cfg.DbCfg.DbPort,
+			cfg.DbCfg.Database))
+		if err != nil {
+			return nil, err
+		}
+		return &ExternalRDS{
+			db: db,
+		}, nil
 	}
 }
 
@@ -98,7 +106,7 @@ type EmbeddedRDS struct {
 	db *sql.DB
 }
 
-func (r *EmbeddedRDS) DB() *sql.DB  {
+func (r *EmbeddedRDS) DB() *sql.DB {
 	return r.db
 }
 
@@ -112,46 +120,46 @@ func (r *EmbeddedRDS) ExecuteQuery(ctx context.Context, query QueryRequest) (res
 			results = nil
 		}
 	}()
-	
+
 	rows := utils.Supplier(func() (i interface{}, err error) {
 		return r.db.Query(query.SQL, query.Args...)
 	}).(*sql.Rows)
-	
+
 	columns, _ := rows.Columns()
-	
+
 	cache := make([]interface{}, len(columns))
 	for index := range cache {
 		var placeholder interface{}
 		cache[index] = &placeholder
 	}
-	
+
 	for rows.Next() {
 		utils.Runnable(func() error {
 			return rows.Scan(cache...)
 		})
-		
+
 		record := make(map[string]interface{})
 		for i, d := range cache {
 			record[columns[i]] = d
 		}
-		
+
 		results = append(results, record)
 	}
-	
+
 	err = nil
-	
+
 	return
 }
 
 func (r *EmbeddedRDS) ExecuteModify(ctx context.Context, reqs ModifyReqs) (err error) {
 	sort.Sort(reqs)
 	db := r.db
-	
+
 	tx, err := db.Begin()
 	if err != nil {
 		return
 	}
-	
+
 	defer func() {
 		if err := recover(); err != nil {
 			err = tx.Rollback()
@@ -165,13 +173,13 @@ func (r *EmbeddedRDS) ExecuteModify(ctx context.Context, reqs ModifyReqs) (err e
 			}
 		}
 	}()
-	
+
 	for _, req := range reqs {
 		_ = utils.Supplier(func() (i interface{}, err error) {
 			return tx.Exec(req.SQL, req.Args...)
 		}).(sql.Result)
 	}
-	
+
 	return
 }
 
@@ -183,7 +191,7 @@ type ExternalRDS struct {
 	db *sql.DB
 }
 
-func (r *ExternalRDS) DB() *sql.DB  {
+func (r *ExternalRDS) DB() *sql.DB {
 	return r.db
 }
 
@@ -205,14 +213,14 @@ func (r *ExternalRDS) Transaction(ctx context.Context, f func(db *sql.DB) error)
 
 func transaction(ctx context.Context, db *sql.DB, f func(db *sql.DB) error) error {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{
-		Isolation:sql.LevelReadCommitted,
-		ReadOnly:false,
+		Isolation: sql.LevelReadCommitted,
+		ReadOnly:  false,
 	})
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	err = f(db)
 	if err != nil {
 		return tx.Rollback()

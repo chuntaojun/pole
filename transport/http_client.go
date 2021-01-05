@@ -2,8 +2,8 @@ package transport
 
 import (
 	"context"
-	"sync"
 
+	"github.com/jjeffcaii/reactor-go"
 	flux2 "github.com/jjeffcaii/reactor-go/flux"
 	mono2 "github.com/jjeffcaii/reactor-go/mono"
 
@@ -15,32 +15,24 @@ type HttpTransportClient struct {
 	serverAddr string
 	openTSL    bool
 	client     *HttpClient
-	rwLock     sync.RWMutex
-	filters    []func(req *pojo.ServerRequest)
+	bc         *baseTransportClient
 }
 
-func newHttpClient(serverAddr string, openTSL bool) *HttpTransportClient {
+func newHttpClient(serverAddr string, openTSL bool) (*HttpTransportClient, error) {
 	return &HttpTransportClient{
 		serverAddr: serverAddr,
 		openTSL:    openTSL,
 		client:     NewHttpClient(openTSL),
-		rwLock:     sync.RWMutex{},
-		filters:    nil,
-	}
+		bc:         newBaseClient(),
+	}, nil
 }
 
 func (c *HttpTransportClient) AddChain(filter func(req *pojo.ServerRequest)) {
-	defer c.rwLock.Unlock()
-	c.rwLock.Lock()
-	c.filters = append(c.filters, filter)
+	c.bc.AddChain(filter)
 }
 
 func (c *HttpTransportClient) Request(req *pojo.ServerRequest) (mono2.Mono, error) {
-	c.rwLock.RLock()
-	for _, filter := range c.filters {
-		filter(req)
-	}
-	c.rwLock.RUnlock()
+	c.bc.DoFilter(req)
 
 	return mono2.Create(func(ctx context.Context, s mono2.Sink) {
 		resp, err := c.client.Put(common.EmptyContext, c.serverAddr, req.Label, req)
@@ -53,5 +45,19 @@ func (c *HttpTransportClient) Request(req *pojo.ServerRequest) (mono2.Mono, erro
 }
 
 func (c *HttpTransportClient) RequestChannel(call func(resp *pojo.ServerResponse, err error)) flux2.Sink {
+	var _sink flux2.Sink
+	flux2.Create(func(ctx context.Context, sink flux2.Sink) {
+		_sink = sink
+	}).Map(func(any reactor.Any) (reactor.Any, error) {
+		req := any.(*pojo.ServerRequest)
+		c.bc.DoFilter(req)
+		resp, err := c.client.Put(common.EmptyContext, c.serverAddr, req.Label, req)
+		call(resp, err)
+		return nil, nil
+	}).Subscribe(context.Background())
+	return _sink
+}
+
+func (c *HttpTransportClient) Close() error {
 	return nil
 }

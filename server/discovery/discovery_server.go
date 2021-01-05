@@ -122,7 +122,7 @@ func (na *DiscoverySdkAPI) instanceRegister(cxt *common.ContextPole, req *pojo.S
 			Code:   -1,
 		})
 	}
-	return nil
+	return na.core.serviceMgn.addInstance(registerReq)
 }
 
 func (na *DiscoverySdkAPI) instanceDeregister(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {

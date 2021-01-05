@@ -28,25 +28,25 @@ func NewSet() Set {
 	}
 }
 
-func (s *Set) Range(f func(value interface{})) {
+func (s Set) Range(f func(value interface{})) {
 	for v, _ := range s.container {
 		f(v)
 	}
 }
 
-func (s *Set) Add(value interface{}) {
+func (s Set) Add(value interface{}) {
 	s.container[value] = member
 }
 
-func (s *Set) Remove(value interface{}) {
+func (s Set) Remove(value interface{}) {
 	delete(s.container, value)
 }
 
-func (s *Set) Size() int {
+func (s Set) Size() int {
 	return len(s.container)
 }
 
-func (s *Set) ToSlice() []interface{} {
+func (s Set) ToSlice() []interface{} {
 	result := make([]interface{}, len(s.container))
 
 	for v, _ := range s.container {

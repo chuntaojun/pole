@@ -93,11 +93,11 @@ const (
 	ErrNonNilMsg = "%s must not nil"
 )
 
-func IF(expression bool, a, b interface{}) interface{} {
+func IF(expression bool, a func() interface{}, b func() interface{}) interface{} {
 	if expression {
-		return a
+		return a()
 	}
-	return b
+	return b()
 }
 
 func RequireNonNil(e interface{}, msg string) interface{} {

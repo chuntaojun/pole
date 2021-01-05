@@ -1,5 +1,9 @@
+# github.com/DataDog/zstd v1.4.1
+github.com/DataDog/zstd
 # github.com/VictoriaMetrics/metrics v1.6.2
 github.com/VictoriaMetrics/metrics
+# github.com/cespare/xxhash v1.1.0
+github.com/cespare/xxhash
 # github.com/cockroachdb/pebble v0.0.0-20200219202912-046831eaec09
 github.com/cockroachdb/pebble
 github.com/cockroachdb/pebble/internal/arenaskl
@@ -21,6 +25,21 @@ github.com/cockroachdb/pebble/sstable
 github.com/cockroachdb/pebble/vfs
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
+# github.com/dgraph-io/badger/v2 v2.2007.2
+github.com/dgraph-io/badger/v2
+github.com/dgraph-io/badger/v2/options
+github.com/dgraph-io/badger/v2/pb
+github.com/dgraph-io/badger/v2/skl
+github.com/dgraph-io/badger/v2/table
+github.com/dgraph-io/badger/v2/trie
+github.com/dgraph-io/badger/v2/y
+# github.com/dgraph-io/ristretto v0.0.3-0.20200630154024-f66de99634de
+github.com/dgraph-io/ristretto
+github.com/dgraph-io/ristretto/z
+# github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2
+github.com/dgryski/go-farm
+# github.com/dustin/go-humanize v1.0.0
+github.com/dustin/go-humanize
 # github.com/fsnotify/fsnotify v1.4.9
 github.com/fsnotify/fsnotify
 # github.com/gin-contrib/sse v0.1.0
@@ -155,7 +174,10 @@ github.com/valyala/histogram
 go.uber.org/atomic
 # golang.org/x/exp v0.0.0-20191227195350-da58074b4299
 golang.org/x/exp/rand
-# golang.org/x/sys v0.0.0-20200622214017-ed371f2e16b4
+# golang.org/x/net v0.0.0-20201021035429-f5854403a974
+golang.org/x/net/internal/timeseries
+golang.org/x/net/trace
+# golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f
 golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/unix
 # google.golang.org/protobuf v1.24.0
@@ -191,5 +213,5 @@ google.golang.org/protobuf/types/known/durationpb
 google.golang.org/protobuf/types/known/timestamppb
 # gopkg.in/yaml.v2 v2.3.0
 gopkg.in/yaml.v2
-# gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c
+# gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776
 gopkg.in/yaml.v3

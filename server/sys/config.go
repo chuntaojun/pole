@@ -19,7 +19,7 @@ const (
 
 var propertiesHolder atomic.Value
 
-func init() {
+func InitConf() {
 	propertiesHolder = atomic.Value{}
 	s, err := ioutil.ReadFile("./conf/pole.yaml")
 	if err != nil {
@@ -38,51 +38,59 @@ func GetEnvHolder() *Properties {
 }
 
 type Properties struct {
-	BaseDir        string `yaml:"base_dir"`
-	StandaloneMode bool   `yaml:"standalone_mode"`
-	ConfPath       string `yaml:"conf_path"`
-	DataPath       string `yaml:"data_path"`
-	IsEmbedded     bool   `yaml:"is_embedded"`
-	DriverType     string `yaml:"driver_type"`
-	OpenSSL        bool   `yaml:"open_ssl"`
+	BaseDir        string   `yaml:"baseDir"`
+	StandaloneMode bool     `yaml:"standaloneMode"`
+	ConfPath       string   `yaml:"confPath"`
+	DataPath       string   `yaml:"dataPath"`
+	IsEmbedded     bool     `yaml:"isEmbedded"`
+	DriverType     string   `yaml:"driverType"`
+	OpenSSL        bool     `yaml:"openSsl"`
+	DbCfg          DBConfig `yaml:"dbCfg"`
 
 	// Cluster config
-	ClusterCfg ClusterConfig `yaml:"cluster_config"`
+	ClusterCfg ClusterConfig `yaml:"clusterConfig"`
 
 	// Open port information
 
 	// User-level aware ports
-	HttpPort      int64 `yaml:"http_port"`
-	DiscoveryPort int64 `yaml:"discovery_port"`
-	ConfigPort    int64 `yaml:"config_port"`
+	HttpPort      int64 `yaml:"httpPort"`
+	DiscoveryPort int64 `yaml:"discoveryPort"`
+	ConfigPort    int64 `yaml:"configPort"`
 	// The internal port
-	DistroPort int64 `yaml:"distro_port"`
-	RaftPort   int64 `yaml:"raft_port"`
+	DistroPort int64 `yaml:"distroPort"`
+	RaftPort   int64 `yaml:"raftPort"`
 }
 
 type ClusterConfig struct {
-	LookupCfg MemberLookupConfig `yaml:"lookup_cfg"`
+	LookupCfg MemberLookupConfig `yaml:"lookupCfg"`
 }
 
 type MemberLookupConfig struct {
-	MaxProbeFailCnt  int32                  `yaml:"max_probe_fail"`
-	MemberLookupType string                 `yaml:"lookup_type"`
-	AddressLookupCfg AddressLookupConfig    `yaml:"address_lookup"`
-	K8sLookupCfg     KubernetesLookupConfig `yaml:"k8s_lookup"`
+	MaxProbeFailCnt  int32                  `yaml:"maxProbeFail"`
+	MemberLookupType string                 `yaml:"lookupType"`
+	AddressLookupCfg AddressLookupConfig    `yaml:"addressLookup"`
+	K8sLookupCfg     KubernetesLookupConfig `yaml:"k8sLookup"`
 }
 
 type KubernetesLookupConfig struct {
 }
 
 type AddressLookupConfig struct {
-	ServerAddr string `yaml:"address_server"`
-	ServerPort uint64 `yaml:"server_port"`
-	ServerPath string `yaml:"server_path"`
+	ServerAddr string `yaml:"addressServer"`
+	ServerPort uint64 `yaml:"serverPort"`
+	ServerPath string `yaml:"serverPath"`
 }
 
 // linux cgroup 参数配置
 type CGroupConfig struct {
+}
 
+type DBConfig struct {
+	DbHost   string `yaml:"dbHost"`
+	DbPort   int32  `yaml:"dbPort"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Database string `yaml:"database"`
 }
 
 func (c *Properties) IsStandaloneMode() bool {

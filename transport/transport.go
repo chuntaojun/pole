@@ -5,6 +5,8 @@
 package transport
 
 import (
+	"sync"
+
 	flux2 "github.com/jjeffcaii/reactor-go/flux"
 	mono2 "github.com/jjeffcaii/reactor-go/mono"
 
@@ -20,6 +22,8 @@ type TransportClient interface {
 	Request(req *pojo.ServerRequest) (mono2.Mono, error)
 
 	RequestChannel(call func(resp *pojo.ServerResponse, err error)) flux2.Sink
+
+	Close() error
 }
 
 type TransportServer interface {
@@ -35,20 +39,49 @@ func ParseErrorToResult(err *common.PoleError) *pojo.RestResult {
 	}
 }
 
+type baseTransportClient struct {
+	rwLock     sync.RWMutex
+	filters    []func(req *pojo.ServerRequest)
+}
+
+func newBaseClient() *baseTransportClient {
+	return &baseTransportClient{
+		rwLock:  sync.RWMutex{},
+		filters: make([]func(req *pojo.ServerRequest), 0, 0),
+	}
+}
+
+func (btc *baseTransportClient) AddChain(filter func(req *pojo.ServerRequest))  {
+	defer btc.rwLock.Unlock()
+	btc.rwLock.Lock()
+	btc.filters = append(btc.filters, filter)
+}
+
+func (btc *baseTransportClient) DoFilter(req *pojo.ServerRequest)  {
+	btc.rwLock.RLock()
+	for _, filter := range btc.filters {
+		filter(req)
+	}
+	btc.rwLock.RUnlock()
+}
+
 type ConnectType string
 
 const (
 	ConnectTypeRSocket ConnectType = "RSocket"
 	ConnectTypeHttp ConnectType = "Http"
+	ConnectWebSocket ConnectType = "WebSocket"
 )
 
-func NewTransportClient(t ConnectType, serverAddr string, openTSL bool) TransportClient {
+func NewTransportClient(t ConnectType, serverAddr string, openTSL bool) (TransportClient, error) {
 	switch t {
 	case ConnectTypeHttp:
 		return newHttpClient(serverAddr, openTSL)
 	case ConnectTypeRSocket:
 		return newRSocketClient(serverAddr, openTSL)
+	case ConnectWebSocket:
+		return newWebSocketClient(serverAddr, openTSL)
 	default:
-		return nil
+		return nil, nil
 	}
 }
