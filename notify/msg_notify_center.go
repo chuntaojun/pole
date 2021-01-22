@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -11,8 +11,8 @@ import (
 	"math"
 	"sync"
 
-	"github.com/Conf-Group/pole/common"
-	"github.com/Conf-Group/pole/utils"
+	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/utils"
 )
 
 var (

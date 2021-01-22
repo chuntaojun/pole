@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/Conf-Group/pole/common"
+	"github.com/pole-group/pole/common"
 )
 
 type LifeCycle interface {

@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Conf-Group/pole/common"
+	"github.com/pole-group/pole/common"
 )
 
 func GoEmpty(work func()) {
@@ -39,9 +39,8 @@ func DoTimerSchedule(ctx *common.ContextPole, work func(), delay time.Duration, 
 }
 
 func DoTickerSchedule(ctx context.Context, work func(), delay time.Duration) {
-	go func() {
+	go func(ctx context.Context) {
 		ticker := time.NewTicker(delay)
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -51,8 +50,7 @@ func DoTickerSchedule(ctx context.Context, work func(), delay time.Duration) {
 			}
 		}
 
-	}()
-
+	}(ctx)
 }
 
 type TimeFunction interface {

@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -11,23 +11,31 @@ package pojo;
 message Service {
   string serviceName = 1;
   string group = 2;
-  map<string, string> metadata = 3;
+  ServiceMetadata metadata = 3;
   double protectThreshold = 5;
   string selector = 6;
+}
+
+message ServiceMetadata {
+  map<string, string> metadata = 1;
 }
 
 enum CheckType {
   TCP = 0;
   HTTP = 1;
   CUSTOMER = 2;
+  HeartBeat = 3;
 }
 
 message Cluster {
   string serviceName = 1;
   string group = 2;
   string clusterName = 3;
-  CheckType checkType = 4;
-  map<string, string> metadata = 5;
+  ClusterMetadata metadata = 5;
+}
+
+message ClusterMetadata {
+  map<string, string> metadata = 1;
 }
 
 message Instance {
@@ -37,9 +45,14 @@ message Instance {
   int64 port = 4;
   string clusterName = 5;
   double weight = 6;
-  map<string, string> metadata = 7;
+  InstanceMetadata metadata = 7;
   bool ephemeral = 8;
   bool enabled = 9;
+  CheckType healthCheckType = 10;
+}
+
+message InstanceMetadata {
+  map<string, string> metadata = 1;
 }
 
 // enpity for config

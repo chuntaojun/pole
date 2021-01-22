@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -8,10 +8,10 @@ import (
 	"context"
 
 	"github.com/gin-gonic/gin"
+	pole_rpc "github.com/pole-group/pole-rpc"
 
-	"github.com/Conf-Group/pole/common"
-	"github.com/Conf-Group/pole/server/sys"
-	"github.com/Conf-Group/pole/transport"
+	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/server/sys"
 )
 
 type ConfigServer struct {
@@ -58,14 +58,14 @@ func (cc *ConfConsole) Shutdown() {
 }
 
 type ConfAPI struct {
-	server *transport.RSocketServer
-	ctx	context.Context
+	server pole_rpc.TransportServer
+	ctx    context.Context
 }
 
-func newConfAPI(cfg sys.Properties, ctx	context.Context) *ConfAPI {
+func newConfAPI(cfg sys.Properties, ctx context.Context) *ConfAPI {
 	subCtx, _ := context.WithCancel(ctx)
 	return &ConfAPI{
-		server: transport.NewRSocketServer(subCtx, "CONF-CONFIG", cfg.ConfigPort, cfg.OpenSSL),
+		server: pole_rpc.NewRSocketServer(subCtx, "CONF-CONFIG", int32(cfg.ConfigPort), cfg.OpenSSL),
 		ctx:    subCtx,
 	}
 }

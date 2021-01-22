@@ -1,6 +1,6 @@
-# Contributing to Conf-Group/conf
+# Contributing to pole-group/conf
 
-Welcome to Conf-Group/conf! This document is a guideline about how to contribute to Conf-Group/conf.
+Welcome to pole-group/conf! This document is a guideline about how to contribute to pole-group/conf.
 
 If you find something incorrect or missing, please leave comments / suggestions.
 
@@ -12,13 +12,13 @@ Please make sure to read and observe our [Code of Conduct](./CODE_OF_CONDUCT.md)
 
 #### Open / pickup an issue for preparation
 
-If you find a typo in document, find a bug in code, or want new features, or want to give suggestions, you can [open an issue on GitHub](https://github.com/Conf-Group/conf/issues/new) to report it.
+If you find a typo in document, find a bug in code, or want new features, or want to give suggestions, you can [open an issue on GitHub](https://github.com/pole-group/conf/issues/new) to report it.
 
 If you just want to contribute directly you can choose the issue below.
 
--   [Contribution Welcome](https://github.com/Conf-Group/conf/labels/contribution%20Welcome): Heavily needed issue, but currently short of hand.
+-   [Contribution Welcome](https://github.com/pole-group/conf/labels/contribution%20Welcome): Heavily needed issue, but currently short of hand.
     
--   [good first issue](https://github.com/Conf-Group/conf/labels/good%20first%20issue): Good for newcomers, new comer can pickup one for warm-up.
+-   [good first issue](https://github.com/pole-group/conf/labels/good%20first%20issue): Good for newcomers, new comer can pickup one for warm-up.
    
 
 Please note that any PR must be associated with a valid issue. Otherwise the PR will be rejected.

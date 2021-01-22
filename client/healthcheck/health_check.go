@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -7,16 +7,18 @@ package healthcheck
 import (
 	"fmt"
 
-	"github.com/Conf-Group/pole/common"
-	"github.com/Conf-Group/pole/plugin"
-	"github.com/Conf-Group/pole/pojo"
+	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/plugin"
+	"github.com/pole-group/pole/pojo"
 )
 
 const (
-	HealthCheck_Customer  = "customer_health_check"
-	HealthCheck_Tcp       = "tcp_health_check"
-	HealthCheck_Http      = "http_health_check"
-	HealthCheck_Heartbeat = "heartbeat_health_check" // default mode
+	// 处于agent模式的实例健康检查模式
+	healthcheckCustomer = "customer_health_check"
+	HealthcheckTcp      = "tcp_health_check"
+	HealthcheckHttp     = "http_health_check"
+	// 默认健康检查模式，采用心跳包检查的方式
+	HealthcheckHeartbeat = "heartbeat_health_check" // default mode
 )
 
 type HealthCheckPlugin interface {
@@ -64,14 +66,14 @@ func (hcm *HealthCheckManager) RegisterHealthCheckTask(task HealthCheckTask) (bo
 	var checker HealthCheckPlugin
 	switch task.(type) {
 	case HttpCodeCheckTask:
-		checker = plugin.GetPluginByName(HealthCheck_Http).(*HttpCodeHealthCheckPlugin)
+		checker = plugin.GetPluginByName(HealthcheckHttp).(*HttpCodeHealthCheckPlugin)
 	case TcpHealthCheckTask:
-		checker = plugin.GetPluginByName(HealthCheck_Tcp).(*TcpHealthCheckPlugin)
+		checker = plugin.GetPluginByName(HealthcheckTcp).(*TcpHealthCheckPlugin)
 	case CustomerHealthCheckTask:
-		checker = plugin.GetPluginByName(HealthCheck_Customer).(*CustomHealthCheckPlugin)
+		checker = plugin.GetPluginByName(healthcheckCustomer).(*CustomHealthCheckPlugin)
 	case HeartbeatCheckTask:
 		// 走 Heartbeat 的模式
-		checker = plugin.GetPluginByName(HealthCheck_Heartbeat).(*ConnectionBeatHealthCheckPlugin)
+		checker = plugin.GetPluginByName(HealthcheckHeartbeat).(*ConnectionBeatHealthCheckPlugin)
 	default:
 		return false, fmt.Errorf("unsupport this check task : %s", task)
 	}

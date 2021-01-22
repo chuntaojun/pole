@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -73,11 +73,12 @@ type MemberLookupConfig struct {
 }
 
 type KubernetesLookupConfig struct {
+	Namespace string `yaml:"namespace"`
 }
 
 type AddressLookupConfig struct {
 	ServerAddr string `yaml:"addressServer"`
-	ServerPort uint64 `yaml:"serverPort"`
+	ServerPort int32 `yaml:"serverPort"`
 	ServerPath string `yaml:"serverPath"`
 }
 

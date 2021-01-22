@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Conf-Group/pole/server/sys"
-	"github.com/Conf-Group/pole/utils"
+	"github.com/pole-group/pole/server/sys"
+	"github.com/pole-group/pole/utils"
 )
 
 func OnSuccess(m *Member) {
@@ -41,27 +41,27 @@ func MultiParse(arr ...string) []*Member {
 func SingParse(s string) *Member {
 	ss := strings.Split(s, ":")
 	ip := ss[0]
-	port, err := strconv.ParseUint(ss[1], 10, 64)
+	port, err := strconv.ParseInt(ss[1], 10, 32)
 	if err != nil {
 		panic(err)
 	}
 
-	extensionPort := make(map[string]int)
+	extensionPort := make(map[string]int32)
 
 	for _, v := range strings.Split(strings.Split(s, "?")[1], "&") {
 		item := strings.Split(v, "=")
-		p, err := strconv.Atoi(strings.TrimSpace(item[1]))
+		p, err := strconv.ParseInt(strings.TrimSpace(item[1]), 10, 32)
 
 		if err != nil {
 			panic(err)
 		}
 
-		extensionPort[strings.TrimSpace(item[0])] = p
+		extensionPort[strings.TrimSpace(item[0])] = int32(p)
 	}
 
 	return &Member{
 		Ip:             ip,
-		Port:           port,
+		Port:           int32(port),
 		ExtensionPorts: extensionPort,
 		MetaData:       make(map[string]string),
 	}

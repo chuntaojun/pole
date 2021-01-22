@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -12,10 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Conf-Group/pole/common"
-	"github.com/Conf-Group/pole/pojo"
-	"github.com/Conf-Group/pole/transport"
-	"github.com/Conf-Group/pole/utils"
+	polerpc "github.com/pole-group/pole-rpc"
+
+	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/pojo"
+	"github.com/pole-group/pole/utils"
 )
 
 type CustomerHealthChecker func() bool
@@ -47,7 +48,7 @@ type CustomHealthCheckPlugin struct {
 }
 
 func (h *CustomHealthCheckPlugin) Name() string {
-	return HealthCheck_Customer
+	return healthcheckCustomer
 }
 
 func (h *CustomHealthCheckPlugin) Init(ctx *common.ContextPole) {
@@ -105,14 +106,14 @@ func (hbt *heartbeatTask) Run() {
 
 type ConnectionBeatHealthCheckPlugin struct {
 	owner          *HealthCheckManager
-	client         transport.TransportClient
+	client         polerpc.TransportClient
 	rwLock         sync.RWMutex
 	htw            *utils.HashTimeWheel
 	taskRepository map[string]*heartbeatTask
 }
 
 func (h *ConnectionBeatHealthCheckPlugin) Name() string {
-	return HealthCheck_Heartbeat
+	return HealthcheckHeartbeat
 }
 
 func (h *ConnectionBeatHealthCheckPlugin) Init(ctx *common.ContextPole) {
@@ -132,7 +133,7 @@ func (h *ConnectionBeatHealthCheckPlugin) AddTask(task HealthCheckTask) (bool, e
 	ht := &heartbeatTask{
 		task:   httpTask,
 		cancel: 0,
-		owner: h,
+		owner:  h,
 	}
 
 	h.taskRepository[fmt.Sprintf("%s:%d", httpTask.Instance.Ip, httpTask.Instance.Port)] = ht
@@ -176,8 +177,8 @@ func (hct *httpCodeTask) Run() {
 
 	hClient := hct.owner.client
 
-	req, err := http.NewRequest("GET", utils.BuildHttpsUrl(hct.task.Instance.Ip, hct.task.CheckPath,
-		uint64(hct.task.Instance.Port)), nil)
+	req, err := http.NewRequest("GET", utils.BuildHttpsUrl(utils.BuildServerAddr(hct.task.Instance.Ip,
+		int32(hct.task.Instance.Port)), hct.task.CheckPath), nil)
 	if err != nil {
 		// 不健康
 		return
@@ -218,7 +219,7 @@ func (hch *HttpCodeHealthCheckPlugin) Run() {
 }
 
 func (hch *HttpCodeHealthCheckPlugin) Name() string {
-	return HealthCheck_Http
+	return HealthcheckHttp
 }
 
 func (hch *HttpCodeHealthCheckPlugin) AddTask(task HealthCheckTask) (bool, error) {
@@ -305,7 +306,7 @@ func (tc *tcpClient) Run() {
 }
 
 func (h *TcpHealthCheckPlugin) Name() string {
-	return HealthCheck_Tcp
+	return HealthcheckTcp
 }
 
 func (h *TcpHealthCheckPlugin) Init(ctx *common.ContextPole) {

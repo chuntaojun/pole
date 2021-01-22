@@ -1,18 +1,20 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 package discovery
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
+	"context"
 
-	"github.com/Conf-Group/pole/common"
-	"github.com/Conf-Group/pole/pojo"
-	"github.com/Conf-Group/pole/server/sys"
-	"github.com/Conf-Group/pole/transport"
+	"github.com/gin-gonic/gin"
+	"github.com/golang/protobuf/ptypes"
+	"github.com/jjeffcaii/reactor-go/mono"
+	pole_rpc "github.com/pole-group/pole-rpc"
+
+	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/pojo"
+	"github.com/pole-group/pole/server/sys"
 )
 
 const (
@@ -23,12 +25,6 @@ const (
 	InstanceHeartbeat      = InstanceCommonPath + "heartbeat"
 	InstanceSelect         = InstanceCommonPath + "select"
 	InstanceDisabled       = InstanceCommonPath + "disabled"
-)
-
-var (
-	InstanceRegisterSupplier = func() proto.Message {
-		return &pojo.InstanceRegister{}
-	}
 )
 
 type DiscoveryServer struct {
@@ -80,7 +76,7 @@ func (nc *DiscoveryConsole) Shutdown() {
 type DiscoverySdkAPI struct {
 	cfg    sys.Properties
 	ctx    *common.ContextPole
-	server *transport.RSocketServer
+	server pole_rpc.TransportServer
 	core   *DiscoveryCore
 }
 
@@ -98,7 +94,7 @@ func (na *DiscoverySdkAPI) Init(ctx *common.ContextPole) {
 }
 
 func (na *DiscoverySdkAPI) initRpcServer(ctx *common.ContextPole) {
-	na.server = transport.NewRSocketServer(ctx, "POLE-DISCOVERY", na.cfg.DiscoveryPort, na.cfg.OpenSSL)
+	na.server = pole_rpc.NewRSocketServer(context.Background(), "POLE-DISCOVERY", int32(na.cfg.DiscoveryPort), na.cfg.OpenSSL)
 	na.server.RegisterRequestHandler(InstanceRegister, na.instanceRegister)
 	na.server.RegisterRequestHandler(InstanceDeregister, na.instanceDeregister)
 	na.server.RegisterRequestHandler(InstanceMetadataUpdate, na.instanceMetadataUpdate)
@@ -106,46 +102,41 @@ func (na *DiscoverySdkAPI) initRpcServer(ctx *common.ContextPole) {
 }
 
 func (na *DiscoverySdkAPI) initHttpServer(ctx *common.ContextPole) {
-
 }
 
 func (na *DiscoverySdkAPI) Shutdown() {
-	na.ctx.Done()
+	na.ctx.Cancel()
 }
 
-func (na *DiscoverySdkAPI) instanceRegister(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
+func (na *DiscoverySdkAPI) instanceRegister(cxt context.Context, rpcCtx pole_rpc.RpcServerContext) {
 	registerReq := &pojo.InstanceRegister{}
-	err := ptypes.UnmarshalAny(req.Body, registerReq)
+	err := ptypes.UnmarshalAny(rpcCtx.GetReq().Body, registerReq)
 	if err != nil {
-		return transport.ParseErrorToResult(&common.PoleError{
-			ErrMsg: err.Error(),
-			Code:   -1,
+		rpcCtx.Send(&pole_rpc.ServerResponse{
+			Code: -1,
+			Msg:  err.Error(),
 		})
 	}
-	return na.core.serviceMgn.addInstance(registerReq)
+	na.core.serviceMgn.addInstance(registerReq, rpcCtx)
 }
 
-func (na *DiscoverySdkAPI) instanceDeregister(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
-	return nil
+func (na *DiscoverySdkAPI) instanceDeregister(cxt context.Context, rpcCtx pole_rpc.RpcServerContext) {
 }
 
 // just for Http API
-func (na *DiscoverySdkAPI) instanceHeartbeat(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
-	return nil
+func (na *DiscoverySdkAPI) instanceHeartbeat(cxt context.Context, sink mono.Sink) {
 }
 
-func (na *DiscoverySdkAPI) instanceDisabled(ctx *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
+func (na *DiscoverySdkAPI) instanceDisabled(cxt context.Context, rpcCtx pole_rpc.RpcServerContext) {
 	registerReq := &pojo.InstanceDisabled{}
-	err := ptypes.UnmarshalAny(req.Body, registerReq)
+	err := ptypes.UnmarshalAny(rpcCtx.GetReq().Body, registerReq)
 	if err != nil {
-		return transport.ParseErrorToResult(&common.PoleError{
-			ErrMsg: err.Error(),
-			Code:   -1,
+		rpcCtx.Send(&pole_rpc.ServerResponse{
+			Code: -1,
+			Msg:  err.Error(),
 		})
 	}
-	return nil
 }
 
-func (na *DiscoverySdkAPI) instanceMetadataUpdate(cxt *common.ContextPole, req *pojo.ServerRequest) *pojo.RestResult {
-	return nil
+func (na *DiscoverySdkAPI) instanceMetadataUpdate(cxt context.Context, rpcCtx pole_rpc.RpcServerContext) {
 }

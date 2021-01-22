@@ -1,7 +1,7 @@
 package core
 
 import (
-	"github.com/Conf-Group/pole/common"
+	"github.com/pole-group/pole/common"
 )
 
 type DistroProtocol struct {

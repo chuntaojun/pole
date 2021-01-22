@@ -48,6 +48,9 @@ func (d *DoFinallySubscriber) Request(n int) {
 }
 
 func (d *DoFinallySubscriber) Cancel() {
+	if d.s == nil {
+		return
+	}
 	d.s.Cancel()
 	d.runFinally(reactor.SignalTypeCancel)
 }
@@ -68,7 +71,7 @@ func (d *DoFinallySubscriber) OnNext(v reactor.Any) {
 func (d *DoFinallySubscriber) OnSubscribe(ctx context.Context, s reactor.Subscription) {
 	select {
 	case <-ctx.Done():
-		d.OnError(reactor.ErrSubscribeCancelled)
+		d.OnError(reactor.NewContextError(ctx.Err()))
 	default:
 		d.s = s
 		d.actual.OnSubscribe(ctx, d)

@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Conf-Group/pole/pojo"
+	pole_rpc "github.com/pole-group/pole-rpc"
+
+	"github.com/pole-group/pole/pojo"
 )
 
 const (
@@ -29,17 +31,25 @@ type QueryInstance struct {
 }
 
 type ServiceManager struct {
-	lock     sync.RWMutex
-	services map[string]map[string]*Service
+	lock       sync.RWMutex
+	core       *DiscoveryCore
+	lessHolder *LessHolder
+	services   map[string]map[string]*Service
 }
 
-func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister) *pojo.RestResult {
+func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister, sink pole_rpc.RpcServerContext) {
 	namespaceId := req.NamespaceId
 	serviceName := req.Instance.ServiceName
 	groupName := req.Instance.Group
 
 	name := fmt.Sprintf("%s@@%s", serviceName, groupName)
-	sm.createServiceIfAbsent(namespaceId, name)
+	if err := sm.createServiceIfAbsent(namespaceId, serviceName, groupName); err != nil {
+		sink.Send(&pole_rpc.ServerResponse{
+			Code: -1,
+			Msg:  err.Error(),
+		})
+		return
+	}
 
 	clusterName := req.Instance.ClusterName
 	key := fmt.Sprintf("%s#%s#%s#%s#%d", serviceName, groupName, clusterName, req.GetInstance().Ip,
@@ -49,37 +59,50 @@ func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister) *pojo.RestResu
 
 	cluster := sm.services[namespaceId][name].Clusters[clusterName]
 	if cluster == nil {
-		return &pojo.RestResult{
+		sink.Send(&pole_rpc.ServerResponse{
 			Code: -1,
 			Msg:  fmt.Sprintf("Cluster : %s not exist in service : %s, namespace : %s", clusterName, name, namespaceId),
-		}
+		})
+		return
 	}
 
 	if ri := cluster.FindRandom(); !isEmptyInstance(ri) && ri.temporary != instance.temporary {
-		return &pojo.RestResult{
-			Code: 0,
+		sink.Send(&pole_rpc.ServerResponse{
+			Code: -1,
 			Msg:  "A service can only be a persistent or non-persistent instance",
-		}
+		})
+	} else {
+		sm.storeInstanceInfo(sink, cluster, instance, metadata)
 	}
-
-	return sm.storeInstanceInfo(cluster, instance, metadata)
 }
 
-func (sm *ServiceManager) createServiceIfAbsent(namespaceId, serviceName string) {
+func (sm *ServiceManager) createServiceIfAbsent(namespaceId, serviceName, groupName string) error {
+	defer sm.lock.Unlock()
 	sm.lock.Lock()
 	if _, exist := sm.services[namespaceId]; !exist {
 		sm.services[namespaceId] = make(map[string]*Service)
 		if _, exist := sm.services[namespaceId][serviceName]; !exist {
-			sm.services[namespaceId][serviceName] = &Service{
+
+			service := &Service{
 				clusterLock: sync.RWMutex{},
 				labelLock:   sync.RWMutex{},
-				ServiceName: serviceName,
-				Clusters:    make(map[string]*Cluster),
+				name:        fmt.Sprintf("%s@@%s", serviceName, groupName),
+				originService: &pojo.Service{
+					ServiceName:      serviceName,
+					Group:            groupName,
+					ProtectThreshold: 0,
+					Selector:         "",
+				},
+				Clusters: make(map[string]*Cluster),
 			}
+
+			sm.core.storageOperator.SaveService(service, func(err error, s *Service) {
+				sm.services[namespaceId][serviceName] = service
+			})
 		}
 	}
 
-	sm.lock.Unlock()
+	return nil
 }
 
 func (sm *ServiceManager) findService(namespaceID, serviceName string) *Service {
@@ -98,8 +121,25 @@ func (sm *ServiceManager) SelectInstances(query QueryInstance) []Instance {
 	return nil
 }
 
-func (sm *ServiceManager) storeInstanceInfo(cluster *Cluster, instance Instance, metadata InstanceMetadata) *pojo.RestResult {
-	cluster.AddInstance(instance, metadata)
-	return nil
-}
+func (sm *ServiceManager) storeInstanceInfo(sink pole_rpc.RpcServerContext, cluster *Cluster, instance Instance,
+	metadata InstanceMetadata) {
+	sm.core.storageOperator.SaveInstance(instance, func(err error, instance Instance) {
+		if err != nil {
+			sink.Send(&pole_rpc.ServerResponse{
+				Code: 0,
+				Msg:  err.Error(),
+			})
+			return
+		}
+		cluster.AddInstance(instance, metadata)
 
+		if instance.HCType == HealthCheckByHeartbeat {
+			sm.lessHolder.GrantLess(instance)
+		}
+
+		sink.Send(&pole_rpc.ServerResponse{
+			Code: 0,
+			Msg:  "success",
+		})
+	})
+}

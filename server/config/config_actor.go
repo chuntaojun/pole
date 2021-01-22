@@ -3,7 +3,7 @@ package config
 import (
 	"fmt"
 
-	"github.com/Conf-Group/pole/common"
+	"github.com/pole-group/pole/common"
 )
 
 type FilterChain struct {

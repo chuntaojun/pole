@@ -1,11 +1,10 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
 package cluster
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,11 +14,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/Conf-Group/pole/constants"
-	"github.com/Conf-Group/pole/notify"
-	"github.com/Conf-Group/pole/pojo"
-	"github.com/Conf-Group/pole/server/sys"
-	"github.com/Conf-Group/pole/utils"
+	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/constants"
+	"github.com/pole-group/pole/notify"
+	"github.com/pole-group/pole/pojo"
+	"github.com/pole-group/pole/server/sys"
+	"github.com/pole-group/pole/utils"
 )
 
 const (
@@ -28,13 +28,21 @@ const (
 	Impeach
 )
 
+const (
+	PoleHttpPort      string = "httpPort"
+	PoleDiscoveryPort string = "discoveryPort"
+	PoleConfigPort    string = "configPort"
+	PoleRaftPort      string = "raftPort"
+	PoleDistroPort    string = "distroPort"
+)
+
 type Member struct {
 	lock           sync.Locker
 	MemberID       uint64            `json:"memberId"`
 	Identifier     string            `json:"omitempty"`
 	Ip             string            `json:"ip"`
-	Port           uint64            `json:"port"`
-	ExtensionPorts map[string]int    `json:"extensionPorts"`
+	Port           int32             `json:"port"`
+	ExtensionPorts map[string]int32  `json:"extensionPorts"`
 	MetaData       map[string]string `json:"metadata"`
 	Status         int
 	accessFailCnt  int32
@@ -55,11 +63,11 @@ func (m *Member) GetIp() string {
 	return m.Ip
 }
 
-func (m *Member) GetPort() uint64 {
+func (m *Member) GetPort() int32 {
 	return m.Port
 }
 
-func (m *Member) GetExtensionPort(key string) int {
+func (m *Member) GetExtensionPort(key string) int32 {
 	return m.ExtensionPorts[key]
 }
 
@@ -87,7 +95,7 @@ func (m *Member) UpdateAllMetaData(newMetadata map[string]string) {
 
 type ServerClusterManager struct {
 	self       string
-	ctx        context.Context
+	ctx        *common.ContextPole
 	lock       sync.RWMutex
 	memberList map[string]*Member
 	lookUp     MemberLookup
@@ -207,16 +215,22 @@ func (s *ServerClusterManager) MemberChange(newMembers []*Member) {
 	defer s.lock.Unlock()
 	s.lock.Lock()
 
-	hasChanged := false
+	// 如果节点数都不一样，则一定发生了节点的变化
+	hasChanged := len(newMembers) == len(s.memberList)
 
-	for _, m := range newMembers {
-		if v, exist := s.memberList[m.GetIdentifier()]; exist {
-			v.UpdateAllMetaData(m.MetaData)
-		} else {
-			s.memberList[m.GetIdentifier()] = m
+	newMemberList := make(map[string]*Member)
+
+	for _, member := range newMembers {
+		address := member.GetIdentifier()
+
+		if _, exist := s.memberList[address]; !exist {
 			hasChanged = true
 		}
+
+		newMemberList[address] = member
 	}
+
+	s.memberList = newMemberList
 
 	if hasChanged {
 		var list []*Member
@@ -229,14 +243,14 @@ func (s *ServerClusterManager) MemberChange(newMembers []*Member) {
 		})
 
 		if err != nil {
-			fmt.Printf("notify member change failed : %s", err)
+			sys.CoreLogger.Info(common.NewCtxPole(), "notify member change failed : %s", err)
 		}
 	}
 
 }
 
 func (s *ServerClusterManager) openReportSelfInfoToOtherWork() {
-	utils.DoTimerSchedule(s.ctx, func() {
+	utils.DoTimerSchedule(common.NewCtxPole(), func() {
 
 		waitReport := KRandomMember(3, s.GetMemberList(), func(m *Member) bool {
 			return m.Status == Health
@@ -249,7 +263,7 @@ func (s *ServerClusterManager) openReportSelfInfoToOtherWork() {
 				continue
 			}
 
-			url := utils.BuildHttpUrl(m.Ip, constants.MemberInfoReportPattern, m.Port)
+			url := utils.BuildHttpUrl(utils.BuildServerAddr(m.Ip, m.Port), constants.MemberInfoReportPattern)
 			resp, err := http.Post(url, "application/json;charset=utf-8", strings.NewReader(string(bytes)))
 			if err != nil {
 				fmt.Printf("report info to target member has error : %s\n", err)

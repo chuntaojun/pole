@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -10,21 +10,23 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/Conf-Group/pole/pojo"
+	"github.com/pole-group/pole/pojo"
+	"github.com/pole-group/pole/utils"
 )
 
-type ServiceMetadata struct {
-	ServiceName string
-	metadata    map[string]string
-	// consumer.label.{key}=provider.label.{key}
-	LabelRules map[string]string
-}
+type InstanceHealthCheckType int8
+
+const (
+	HealthCheckByHeartbeat InstanceHealthCheckType = iota
+	HealthCheckByAgent
+)
 
 type Service struct {
-	clusterLock sync.RWMutex
-	labelLock   sync.RWMutex
-	ServiceName string
-	Clusters    map[string]*Cluster
+	clusterLock   sync.RWMutex
+	labelLock     sync.RWMutex
+	name          string
+	originService *pojo.Service
+	Clusters      map[string]*Cluster
 }
 
 func (s *Service) FindInstance(clusterName, key string) (Instance, error) {
@@ -37,10 +39,10 @@ type ClusterMetadata struct {
 }
 
 type Cluster struct {
-	lock      sync.RWMutex
-	Name      string
-	Instances map[string]Instance
-	metadata  atomic.Value
+	lock          sync.RWMutex
+	originCluster *pojo.Cluster
+	Instances     map[string]Instance
+	metadata      atomic.Value
 }
 
 var emptyInstance Instance = Instance{
@@ -97,10 +99,9 @@ func (c *Cluster) GetMetadata() map[string]string {
 	return c.metadata.Load().(map[string]string)
 }
 
-
 type InstanceMetadata struct {
-	key      string
-	metadata map[string]string
+	key            string
+	originMetadata *pojo.InstanceMetadata
 }
 
 func (i InstanceMetadata) GetKey() string {
@@ -108,11 +109,11 @@ func (i InstanceMetadata) GetKey() string {
 }
 
 func (i InstanceMetadata) UpdateMetadata(newMetadata map[string]string) {
-	i.metadata = newMetadata
+	i.originMetadata.Metadata = newMetadata
 }
 
 func (i InstanceMetadata) GetMetadata(key string) string {
-	return i.metadata[key]
+	return i.originMetadata.Metadata[key]
 }
 
 func isEmptyInstance(i Instance) bool {
@@ -127,6 +128,7 @@ type Instance struct {
 	enabled   bool
 	healthy   bool
 	temporary bool
+	HCType    InstanceHealthCheckType
 }
 
 func parseToInstance(key string, i *pojo.Instance) (Instance, InstanceMetadata) {
@@ -138,11 +140,13 @@ func parseToInstance(key string, i *pojo.Instance) (Instance, InstanceMetadata) 
 		enabled:   i.Enabled,
 		healthy:   true,
 		temporary: i.Ephemeral,
+		HCType: utils.IF(i.HealthCheckType == pojo.CheckType_HeartBeat, HealthCheckByHeartbeat,
+			HealthCheckByAgent).(InstanceHealthCheckType),
 	}
 
 	metadata := InstanceMetadata{
-		key:      key,
-		metadata: i.Metadata,
+		key:            key,
+		originMetadata: i.Metadata,
 	}
 
 	return instance, metadata
@@ -190,4 +194,3 @@ func (i Instance) GetKey() string {
 	}
 	return i.key
 }
-

@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -17,10 +17,10 @@ import (
 	"github.com/lni/dragonboat/v3/raftio"
 	"github.com/lni/dragonboat/v3/statemachine"
 
-	"github.com/Conf-Group/pole/consistency"
-	"github.com/Conf-Group/pole/server/cluster"
-	"github.com/Conf-Group/pole/server/sys"
-	"github.com/Conf-Group/pole/utils"
+	"github.com/pole-group/pole/server/cluster"
+	"github.com/pole-group/pole/server/consistency"
+	"github.com/pole-group/pole/server/sys"
+	"github.com/pole-group/pole/utils"
 )
 
 type RaftProtocol struct {
@@ -64,7 +64,7 @@ func (protocol *RaftProtocol) AddProcessor(processors ...consistency.RequestProc
 }
 
 // 节点变更操作
-func (protocol *RaftProtocol) OnMemberChange(newMembers []string) {
+func (protocol *RaftProtocol) OnMemberChange(newMembers []*cluster.Member) {
 
 }
 

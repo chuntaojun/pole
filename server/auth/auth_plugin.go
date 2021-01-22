@@ -1,4 +1,4 @@
-// Copyright (c) 2020, Conf-Group. All rights reserved.
+// Copyright (c) 2020, pole-group. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -7,14 +7,7 @@ package auth
 import (
 	"context"
 	"errors"
-	"fmt"
-	"regexp"
-	"strings"
 	"sync"
-	"time"
-
-	"github.com/Conf-Group/pole/constants"
-	"github.com/Conf-Group/pole/utils"
 )
 
 type OperationType int
@@ -81,93 +74,8 @@ type SecurityCenter struct {
 	tokenMap map[string]Role
 }
 
-func CreateSecurityCenter(ctx context.Context) *SecurityCenter {
-	return &SecurityCenter{
-		ctx:      ctx,
-		roleMap:  make(map[string]Role),
-		tokenMap: make(map[string]Role),
-	}
-}
-
-func (s *SecurityCenter) startRoleRefresh() {
-	utils.DoTickerSchedule(s.ctx, func() {
-
-	}, time.Duration(30)*time.Second)
-}
-
-func (s *SecurityCenter) startTokenRefresh() {
-	utils.DoTickerSchedule(s.ctx, func() {
-
-	}, time.Duration(30)*time.Second)
-}
-
-func (s *SecurityCenter) HasPermission(metadata map[string]string, op OperationType) (bool, error) {
-	token := metadata[constants.TokenKey]
-	resource := s.buildResource(metadata)
-	// Judge whether token exists
-	if role, exist := s.tokenMap[token]; exist {
-		return s.authFilter(resource, role, op)
-	}
-	return false, ErrorTokenNotExist
-}
-
-func (s *SecurityCenter) authFilter(resource string, role Role, op OperationType) (bool, error) {
-	defer func() {
-		s.tL.RUnlock()
-	}()
-	s.tL.RLock()
-
-	if strings.Compare(AdminName, role.roleName) == 0 {
-		return true, nil
-	}
-
-	// what permissions do I have to find this resource
-	p := role.permissions
-	reg := strings.ReplaceAll(p.resource, "*", ".*")
-	isOk, err := regexp.Match(reg, []byte(resource))
-	if err != nil {
-		return false, err
-	}
-
-	if !isOk {
-		return false, ErrorForbid
-	}
-
-	if op == p.operation {
-		return true, nil
-	}
-
-	return false, fmt.Errorf("forbid %s this resource, it just allow %s", parseOperationName(op),
-		parseOperationName(p.operation))
-}
-
-func parseOperationName(ops OperationType) string {
-	switch ops {
-	case ReadOnly:
-		return "read"
-	case WriteOnly:
-		return "write"
-	case ReadAndWrite:
-		return "read and write"
-	default:
-		panic(ErrorOperateNotSupport)
-	}
-}
-
-// {namespace}:{group}
-func (s *SecurityCenter) buildResource(header map[string]string) string {
-	namespaceID := header[constants.NamespaceID]
-	group := header[constants.Group]
-	resource := ""
-	if namespaceID != "" {
-		resource += namespaceID
-	}
-	resource += ":"
-
-	if group == "" {
-		resource += "*"
-	} else {
-		resource += group
-	}
-	return resource
+type RequestWrapper struct {
+	Resource    string
+	Op          OperationType
+	AccessToken Token
 }

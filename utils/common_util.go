@@ -93,7 +93,14 @@ const (
 	ErrNonNilMsg = "%s must not nil"
 )
 
-func IF(expression bool, a func() interface{}, b func() interface{}) interface{} {
+func IF(expression bool, a, b interface{}) interface{} {
+	if expression {
+		return a
+	}
+	return b
+}
+
+func IFLazy(expression bool, a func() interface{}, b func() interface{}) interface{} {
 	if expression {
 		return a()
 	}

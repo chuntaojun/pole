@@ -1,6 +1,6 @@
 package config
 
-import "github.com/Conf-Group/pole/pojo"
+import "github.com/pole-group/pole/pojo"
 
 type ConfigMetadata struct {
 	Namespace string
