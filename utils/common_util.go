@@ -6,6 +6,8 @@ import (
 	"hash/crc64"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -131,4 +133,19 @@ func StringFormat(format string, args ...interface{}) string {
 	_, err := fmt.Fprintf(buf, format, args)
 	CheckErr(err)
 	return string(buf.Bytes())
+}
+
+var TimeHolder atomic.Value
+
+func init()  {
+	TimeHolder = atomic.Value{}
+	go func() {
+		ticker := time.NewTicker(time.Duration(100) * time.Millisecond)
+		for {
+			select {
+			case <-ticker.C:
+				TimeHolder.Store(time.Now().Unix())
+			}
+		}
+	}()
 }

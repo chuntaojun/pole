@@ -30,33 +30,19 @@ var (
 	ErrorNotImplement = errors.New("not implement")
 )
 
-type reqRespHandler struct {
-	handler RequestResponseHandler
+type RSocketDispatcher struct {
+	dispatcher
+	pool scheduler.Scheduler
 }
 
-type reqChannelHandler struct {
-	supplier func() proto.Message
-	handler  RequestChannelHandler
-}
-
-type dispatcher struct {
-	pool              scheduler.Scheduler
-	Label             string
-	lock              sync.Mutex
-	reqRespHandler    map[string]reqRespHandler
-	reqChannelHandler map[string]reqChannelHandler
-}
-
-func newDispatcher(label string) *dispatcher {
-	return &dispatcher{
-		pool:              scheduler.NewElastic(32),
-		Label:             label,
-		reqRespHandler:    make(map[string]reqRespHandler),
-		reqChannelHandler: make(map[string]reqChannelHandler),
+func newRSocketDispatcher(label string) *RSocketDispatcher {
+	return &RSocketDispatcher{
+		dispatcher: newDispatcher(label),
+		pool:       scheduler.NewElastic(32),
 	}
 }
 
-func (r *dispatcher) createRequestResponseSocket() rsocket.OptAbstractSocket {
+func (r *RSocketDispatcher) createRequestResponseSocket() rsocket.OptAbstractSocket {
 	return rsocket.RequestResponse(func(msg payload.Payload) mono.Mono {
 		body := msg.Data()
 		req := &ServerRequest{}
@@ -65,11 +51,11 @@ func (r *dispatcher) createRequestResponseSocket() rsocket.OptAbstractSocket {
 			return mono.Error(err)
 		}
 
-		if wrap, ok := r.reqRespHandler[req.GetFunName()]; ok {
-			rpcCtx := newOnceRpcContext()
+		if handler := r.FindReqRespHandler(req.GetFunName()); handler != nil {
+			rpcCtx := newOnceRsRpcContext()
 			return mono.Raw(reactorM.Create(func(ctx context.Context, sink reactorM.Sink) {
 				rpcCtx.req.Store(req)
-				wrap.handler(context.Background(), rpcCtx)
+				handler(context.Background(), rpcCtx)
 			}).Map(func(any reactor.Any) (reactor.Any, error) {
 				resp := any.(*ServerResponse)
 				resp.RequestId = req.RequestId
@@ -91,18 +77,18 @@ func (r *dispatcher) createRequestResponseSocket() rsocket.OptAbstractSocket {
 	})
 }
 
-func (r *dispatcher) createRequestChannelSocket() rsocket.OptAbstractSocket {
+func (r *RSocketDispatcher) createRequestChannelSocket() rsocket.OptAbstractSocket {
 	return rsocket.RequestChannel(func(requests flux.Flux) (responses flux.Flux) {
-		rpcCtx := newMultiRpcContext()
+		rpcCtx := newMultiRsRpcContext()
 		requests.
 			DoOnNext(func(input payload.Payload) error {
 				var err error
 				req := &ServerRequest{}
 				err = proto.Unmarshal(input.Data(), req)
 				if err == nil {
-					if wrap, ok := r.reqChannelHandler[req.GetFunName()]; ok {
+					if handler := r.FindReqChannelHandler(req.GetFunName()); handler != nil {
 						rpcCtx.req.Store(req)
-						wrap.handler(context.Background(), rpcCtx)
+						handler(context.Background(), rpcCtx)
 					} else {
 						err = ErrorNotImplement
 					}
@@ -140,33 +126,9 @@ func (r *dispatcher) createRequestChannelSocket() rsocket.OptAbstractSocket {
 	})
 }
 
-func (r *dispatcher) registerRequestResponseHandler(key string, handler RequestResponseHandler) {
-	defer r.lock.Unlock()
-	r.lock.Lock()
-
-	if _, ok := r.reqRespHandler[key]; ok {
-		return
-	}
-	r.reqRespHandler[key] = reqRespHandler{
-		handler: handler,
-	}
-}
-
-func (r *dispatcher) registerRequestChannelHandler(key string, handler RequestChannelHandler) {
-	defer r.lock.Unlock()
-	r.lock.Lock()
-
-	if _, ok := r.reqChannelHandler[key]; ok {
-		return
-	}
-	r.reqChannelHandler[key] = reqChannelHandler{
-		handler: handler,
-	}
-}
-
 type RSocketServer struct {
 	IsReady    chan int8
-	dispatcher *dispatcher
+	dispatcher *RSocketDispatcher
 	ConnMgr    *ConnManager
 	ErrChan    chan error
 }
@@ -182,7 +144,7 @@ func (rs *RSocketServer) RegisterChannelRequestHandler(path string, handler Requ
 func NewRSocketServer(ctx context.Context, label string, port int32, openTSL bool) *RSocketServer {
 	r := RSocketServer{
 		IsReady:    make(chan int8),
-		dispatcher: newDispatcher(label),
+		dispatcher: newRSocketDispatcher(label),
 		ErrChan:    make(chan error),
 		ConnMgr: &ConnManager{
 			rwLock:         sync.RWMutex{},

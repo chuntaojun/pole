@@ -6,7 +6,6 @@ package discovery
 
 import (
 	"fmt"
-	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -40,6 +39,7 @@ type ClusterMetadata struct {
 
 type Cluster struct {
 	lock          sync.RWMutex
+	name          string
 	originCluster *pojo.Cluster
 	Instances     map[string]Instance
 	metadata      atomic.Value
@@ -47,12 +47,11 @@ type Cluster struct {
 
 var emptyInstance Instance = Instance{
 	key:       "",
-	host:      "",
-	port:      -1,
-	weight:    -1,
-	enabled:   false,
-	healthy:   false,
-	temporary: false,
+	originInstance: &pojo.Instance{
+		Ip:              "",
+		Port:            -1,
+	},
+	health: false,
 }
 
 func (c *Cluster) FindInstance(key string) (Instance, error) {
@@ -117,29 +116,20 @@ func (i InstanceMetadata) GetMetadata(key string) string {
 }
 
 func isEmptyInstance(i Instance) bool {
-	return i.key == "" && i.host == "" && i.port == -1
+	return i.key == "" && i.originInstance.Ip == "" && i.originInstance.Port == -1
 }
 
 type Instance struct {
-	key       string
-	host      string
-	port      int64
-	weight    float64
-	enabled   bool
-	healthy   bool
-	temporary bool
-	HCType    InstanceHealthCheckType
+	key            string
+	health         bool
+	originInstance *pojo.Instance
+	HCType         InstanceHealthCheckType
 }
 
 func parseToInstance(key string, i *pojo.Instance) (Instance, InstanceMetadata) {
 	instance := Instance{
-		key:       key,
-		host:      i.Ip,
-		port:      i.Port,
-		weight:    i.Weight,
-		enabled:   i.Enabled,
-		healthy:   true,
-		temporary: i.Ephemeral,
+		key:            key,
+		originInstance: i,
 		HCType: utils.IF(i.HealthCheckType == pojo.CheckType_HeartBeat, HealthCheckByHeartbeat,
 			HealthCheckByAgent).(InstanceHealthCheckType),
 	}
@@ -153,44 +143,44 @@ func parseToInstance(key string, i *pojo.Instance) (Instance, InstanceMetadata) 
 }
 
 func (i Instance) GetIP() string {
-	return i.host
+	return i.originInstance.Ip
 }
 
 func (i Instance) GetPort() int64 {
-	return i.port
+	return i.originInstance.Port
 }
 
 func (i Instance) SetWeight(wright float64) {
-	i.weight = wright
+	i.originInstance.Weight = wright
 }
 
 func (i Instance) GetWeight() float64 {
-	return i.weight
+	return i.originInstance.Weight
 }
 
 func (i Instance) SetEnabled(enabled bool) {
-	i.enabled = enabled
+	i.originInstance.Enabled = enabled
 }
 
 func (i Instance) IsTemporary() bool {
-	return i.temporary
+	return i.originInstance.Ephemeral
 }
 
 func (i Instance) IsEnabled() bool {
-	return i.enabled
+	return i.originInstance.Enabled
 }
 
 func (i Instance) SetHealthy(healthy bool) {
-	i.healthy = healthy
+	i.health = healthy
 }
 
 func (i Instance) IsHealthy() bool {
-	return i.healthy
+	return i.health
 }
 
 func (i Instance) GetKey() string {
 	if i.key == "" {
-		i.key = i.host + ":" + strconv.FormatInt(i.port, 10)
+		panic(fmt.Errorf("instance key must be init when create"))
 	}
 	return i.key
 }

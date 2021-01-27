@@ -1,44 +1,27 @@
-package utils
+// Copyright (c) 2020, pole-group. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package pole_rpc
 
 import (
 	"container/list"
 	"context"
 	"sync"
 	"time"
-
-	"github.com/jjeffcaii/reactor-go/scheduler"
 )
-
-var goroutinePool = scheduler.NewElastic(8)
 
 func GoEmpty(work func()) {
 	go work()
 }
 
-func NewGoroutine(ctx context.Context, runnable func(ctx context.Context)) {
-	go runnable(ctx)
-}
-
-func DoTimerScheduleByOne(ctx context.Context, work func(), delay time.Duration) {
-	go func() {
-		timer := time.NewTimer(delay)
-
-		for {
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-			case <-timer.C:
-				work()
-			}
-		}
-	}()
-
+func Go(ctx context.Context, work func(ctx context.Context)) {
+	go work(ctx)
 }
 
 func DoTimerSchedule(ctx context.Context, work func(), delay time.Duration, supplier func() time.Duration) {
-	go func() {
+	go func(ctx context.Context) {
 		timer := time.NewTimer(delay)
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -48,15 +31,12 @@ func DoTimerSchedule(ctx context.Context, work func(), delay time.Duration, supp
 				timer.Reset(supplier())
 			}
 		}
-
-	}()
-
+	}(ctx)
 }
 
 func DoTickerSchedule(ctx context.Context, work func(), delay time.Duration) {
-	go func() {
+	go func(ctx context.Context) {
 		ticker := time.NewTicker(delay)
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -66,8 +46,7 @@ func DoTickerSchedule(ctx context.Context, work func(), delay time.Duration) {
 			}
 		}
 
-	}()
-
+	}(ctx)
 }
 
 type TimeFunction interface {
@@ -93,14 +72,14 @@ func NewTimeWheel(interval time.Duration, slotNum int32) *HashTimeWheel {
 		buckets:    make([]*timeBucket, slotNum, slotNum),
 	}
 
-	for i := int32(0); i < slotNum; i++ {
+	for i := int32(0); i < slotNum; i ++ {
 		htw.buckets[i] = newTimeBucket()
 	}
 	return htw
 }
 
 func (htw *HashTimeWheel) Start() {
-	NewGoroutine(context.Background(), func(ctx context.Context) {
+	Go(context.Background(), func(ctx context.Context) {
 		for {
 			select {
 			case <-htw.timeTicker.C:
@@ -112,7 +91,7 @@ func (htw *HashTimeWheel) Start() {
 	})
 }
 
-func (htw *HashTimeWheel) AddTask(f TimeFunction, delay time.Duration) {
+func (htw *HashTimeWheel) AddTask(f TimeFunction, delay time.Duration)  {
 	pos, circle := htw.getSlots(delay)
 	task := timeTask{
 		circle: circle,
@@ -134,8 +113,8 @@ func (htw *HashTimeWheel) process() {
 	htw.tick = (htw.tick + 1) % int64(htw.slotNum)
 }
 
-func (htw *HashTimeWheel) clearAllAndProcess() {
-	for i := htw.slotNum; i > 0; i-- {
+func (htw *HashTimeWheel) clearAllAndProcess()  {
+	for i := htw.slotNum; i > 0; i -- {
 		htw.process()
 	}
 }
@@ -207,3 +186,5 @@ func (htw *HashTimeWheel) getSlots(d time.Duration) (pos int32, circle int32) {
 	interval := int64(htw.interval.Seconds())
 	return int32(htw.tick+delayTime/interval) % htw.slotNum, int32(delayTime / interval / int64(htw.slotNum))
 }
+
+

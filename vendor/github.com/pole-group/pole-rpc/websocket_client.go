@@ -21,8 +21,27 @@ import (
 	"github.com/jjeffcaii/reactor-go/scheduler"
 )
 
+type webSocketRpcContext struct {
+	call  UserCall
+	owner *WebSocketClient
+	fSink flux.Sink
+}
+
+func newWsMultiRpcContext(sink flux.Sink) RpcClientContext {
+	return &webSocketRpcContext{
+		fSink: sink,
+	}
+}
+
+func (rpc *webSocketRpcContext) Send(req *ServerRequest) {
+	defer rpc.owner.lock.Unlock()
+	rpc.owner.lock.Lock()
+	rpc.owner.channelFuture[req.RequestId] = rpc.call
+	rpc.fSink.Next(req)
+}
+
 type WebSocketClient struct {
-	repository    *EndpointRepository
+	repository    EndpointRepository
 	lock          sync.RWMutex
 	clientMap     map[string]*websocket.Conn
 	supplier      func(endpoint Endpoint) (*websocket.Conn, error)
@@ -32,12 +51,12 @@ type WebSocketClient struct {
 	done          chan bool
 }
 
-func newWebSocketClient(openTSL bool) (*WebSocketClient, error) {
-
+func newWebSocketClient(openTSL bool, repository EndpointRepository) (*WebSocketClient, error) {
 	wsc := &WebSocketClient{
 		lock:          sync.RWMutex{},
+		repository:    repository,
 		clientMap:     make(map[string]*websocket.Conn),
-		bc:            NewBaseClient(),
+		bc:            newBaseClient(),
 		future:        make(map[string]mono.Sink),
 		channelFuture: make(map[string]func(resp *ServerResponse, err error)),
 		done:          make(chan bool),
@@ -47,11 +66,18 @@ func newWebSocketClient(openTSL bool) (*WebSocketClient, error) {
 		host := fmt.Sprintf("%s:%d", endpoint.Host, endpoint.Port)
 		var u url.URL
 		if openTSL {
-			u = url.URL{Scheme: "wss", Host: host, Path: "/pole"}
+			u = url.URL{Scheme: "wss", Host: host, Path: "/pole_rpc"}
 		} else {
-			u = url.URL{Scheme: "ws", Host: host, Path: "/pole"}
+			u = url.URL{Scheme: "ws", Host: host, Path: "/pole_rpc"}
 		}
-		c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+		c, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
+		if err == nil {
+			wsc.bc.EventChan <- ConnectEvent{
+				EventType: ConnectEventForConnected,
+				Conn:      c.UnderlyingConn(),
+			}
+		}
+		RpcLog.Info("receive response when connect ws-server : %#v", resp)
 		return c, err
 	}
 	wsc.supplier = supplier
@@ -64,7 +90,7 @@ func newWebSocketClient(openTSL bool) (*WebSocketClient, error) {
 }
 
 func (wsc *WebSocketClient) initServerRead(client *websocket.Conn) {
-	go func() {
+	go func(client *websocket.Conn) {
 		for {
 			select {
 			case <-wsc.done:
@@ -87,9 +113,10 @@ func (wsc *WebSocketClient) initServerRead(client *websocket.Conn) {
 					f(resp, nil)
 					continue
 				}
+				RpcLog.Error("can't find target future to dispatcher response : %s", requestId)
 			}
 		}
-	}()
+	}(client)
 }
 
 func (wsc *WebSocketClient) RegisterConnectEventWatcher(watcher func(eventType ConnectEventType, conn net.Conn)) {
@@ -100,7 +127,7 @@ func (wsc *WebSocketClient) AddChain(filter func(req *ServerRequest)) {
 	wsc.bc.AddChain(filter)
 }
 
-func (wsc *WebSocketClient) Request(ctx context.Context, name string, req *ServerRequest) (mono.Mono, error) {
+func (wsc *WebSocketClient) Request(ctx context.Context, name string, req *ServerRequest) (*ServerResponse, error) {
 	wsc.bc.DoFilter(req)
 
 	conn, err := wsc.computeIfAbsent(name)
@@ -108,31 +135,41 @@ func (wsc *WebSocketClient) Request(ctx context.Context, name string, req *Serve
 		return nil, err
 	}
 
-	return mono.Create(func(ctx context.Context, s mono.Sink) {
+	resp, err := mono.Create(func(ctx context.Context, s mono.Sink) {
 		body, err := proto.Marshal(req)
 		if err != nil {
 			s.Error(err)
 		}
 		wsc.future[req.Header[RequestID]] = s
-		err = conn.WriteMessage(websocket.TextMessage, body)
+		err = conn.WriteMessage(websocket.BinaryMessage, body)
 		if err != nil {
 			s.Error(err)
 		}
 
-	}).Timeout(time.Duration(10) * time.Second), nil
+	}).Timeout(time.Duration(10) * time.Second).Block(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.(*ServerResponse), nil
 }
 
-func (wsc *WebSocketClient) RequestChannel(ctx context.Context, name string, call func(resp *ServerResponse, err error)) flux.Sink {
+func (wsc *WebSocketClient) RequestChannel(ctx context.Context, name string, call UserCall) (RpcClientContext, error) {
 
 	conn, err := wsc.computeIfAbsent(name)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	var sink flux.Sink
+	rpcCtx := &webSocketRpcContext{
+		call:  call,
+		owner: wsc,
+	}
+
 	flux.
 		Create(func(ctx context.Context, s flux.Sink) {
-			sink = s
+			rpcCtx.fSink = s
 		}).
 		Map(func(any reactor.Any) (reactor.Any, error) {
 			req := any.(*ServerRequest)
@@ -141,7 +178,7 @@ func (wsc *WebSocketClient) RequestChannel(ctx context.Context, name string, cal
 			if err != nil {
 				call(nil, err)
 			} else {
-				err = conn.WriteMessage(websocket.TextMessage, body)
+				err = conn.WriteMessage(websocket.BinaryMessage, body)
 				if err != nil {
 					call(nil, err)
 				}
@@ -150,24 +187,27 @@ func (wsc *WebSocketClient) RequestChannel(ctx context.Context, name string, cal
 		}).
 		SubscribeOn(scheduler.NewElastic(1)).
 		Subscribe(ctx)
-	return sink
+	return rpcCtx, nil
 }
 
 func (wsc *WebSocketClient) Close() error {
 	close(wsc.done)
+	for _, c := range wsc.clientMap {
+		_ = c.Close()
+	}
 	return nil
 }
 
 func (wsc *WebSocketClient) computeIfAbsent(name string) (*websocket.Conn, error) {
 	success, endpoint := wsc.repository.SelectOne(name)
 	if !success {
-		return nil, fmt.Errorf("")
+		return nil, fmt.Errorf("can't find endpoint by name : %s", name)
 	}
 
-	var rClient *websocket.Conn
+	var wClient *websocket.Conn
 	wsc.lock.RLock()
 	if v, exist := wsc.clientMap[endpoint.GetKey()]; exist {
-		rClient = v
+		wClient = v
 		wsc.lock.RUnlock()
 	} else {
 		wsc.lock.RUnlock()
@@ -178,8 +218,8 @@ func (wsc *WebSocketClient) computeIfAbsent(name string) (*websocket.Conn, error
 			return nil, err
 		}
 		wsc.clientMap[endpoint.GetKey()] = client
-		rClient = client
-		wsc.initServerRead(rClient)
+		wClient = client
+		wsc.initServerRead(wClient)
 	}
-	return rClient, nil
+	return wClient, nil
 }

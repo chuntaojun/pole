@@ -18,8 +18,8 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/pkg/errors v0.9.1
-	github.com/pole-group/lraft v0.0.0-20210116174843-6471f78c58bf
-	github.com/pole-group/pole-rpc v0.0.0-20210121155359-1437b7bc2f25
+	github.com/pole-group/lraft v0.0.0-20210116174843-6471f78c58bf // indirect
+	github.com/pole-group/pole-rpc v0.0.1-beta
 	github.com/rsocket/rsocket-go v0.7.10 // indirect
 	github.com/stretchr/objx v0.3.0 // indirect
 	github.com/stretchr/testify v1.6.1

@@ -1,31 +1,39 @@
 package discovery
 
 import (
+	"context"
+
+	"github.com/golang/protobuf/proto"
+
 	"github.com/pole-group/pole/common"
 	"github.com/pole-group/pole/plugin"
 	"github.com/pole-group/pole/server/storage"
+	"github.com/pole-group/pole/utils"
 )
 
 const PluginDiscoveryStorage string = "PluginDiscoveryStorage"
 
 type DiscoveryStorage interface {
-	SaveService(service *Service, call func(err error, service *Service))
+	// SaveService 保存一个 Service 对象
+	SaveService(ctx context.Context, service *Service, call func(err error, service *Service))
+	// BatchUpdateService 批量更新 Service 对象
+	BatchUpdateService(ctx context.Context, services []*Service, call func(err error, services []*Service))
+	// RemoveService 删除一个服务, 会级联删除该服务下的所有相关Cluster、Instance资源信息
+	RemoveService(ctx context.Context, service *Service, call func(err error, service *Service))
+	// ReadService 获取一个服务
+	ReadService(ctx context.Context, query *Service)
+	// SaveCluster
+	SaveCluster(ctx context.Context, cluster *Cluster, call func(err error, cluster *Cluster))
 
-	BatchUpdateService(services []*Service, call func(err error, services []*Service))
+	BatchUpdateCluster(ctx context.Context, clusters []*Cluster, call func(err error, clusters []*Cluster))
 
-	RemoveService(service *Service, call func(err error, service *Service))
+	RemoveCluster(ctx context.Context, cluster *Cluster, call func(err error, cluster *Cluster))
 
-	SaveCluster(cluster *Cluster, call func(err error, cluster *Cluster))
+	SaveInstance(ctx context.Context, instance *Instance, call func(err error, instance *Instance))
 
-	BatchUpdateCluster(clusters []*Cluster, call func(err error, clusters []*Cluster))
+	BatchUpdateInstance(ctx context.Context, instances []*Instance, call func(err error, instances []*Instance))
 
-	RemoveCluster(cluster *Cluster, call func(err error, cluster *Cluster))
-
-	SaveInstance(instance Instance, call func(err error, instance Instance))
-
-	BatchUpdateInstance(instances []Instance, call func(err error, instances []Instance))
-
-	RemoveInstance(instance Instance, call func(err error, instance Instance))
+	RemoveInstance(ctx context.Context, instance *Instance, call func(err error, instance *Instance))
 }
 
 func InitDiscoveryStorage() (bool, error) {
@@ -33,52 +41,161 @@ func InitDiscoveryStorage() (bool, error) {
 }
 
 type kvDiscoveryStorage struct {
-	hashRegionKv  *storage.HashRegionKVStorage
-	rangeRegionKv *storage.RangeRegionKVStorage
+	memoryKv storage.KVStorage
+	diskKv   storage.KVStorage
 }
 
-func (kvD *kvDiscoveryStorage) Init(ctx *common.ContextPole) {
-
+func (kvD *kvDiscoveryStorage) Init(ctx context.Context) error {
+	var err error
+	kvD.memoryKv, err = storage.NewKVStorage(ctx, storage.MemoryKv)
+	if err != nil {
+		return err
+	}
+	kvD.diskKv, err = storage.NewKVStorage(ctx, storage.BadgerKv)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (kvD *kvDiscoveryStorage) Run() {
-
+	// do nothing
 }
 
-func (kvD *kvDiscoveryStorage) SaveService(service *Service, call func(err error, service *Service)) {
-	
+func (kvD *kvDiscoveryStorage) SaveService(ctx context.Context, service *Service, call func(err error, service *Service)) {
+	saveV := service.originService
+	key := []byte(service.name)
+	value, err := proto.Marshal(saveV)
+	if err != nil {
+		call(err, nil)
+		return
+	}
+	if err := kvD.diskKv.Write(ctx, key, value); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, service)
 }
 
-func (kvD *kvDiscoveryStorage) BatchUpdateService(services []*Service, call func(err error, services []*Service)) {
-	
+func (kvD *kvDiscoveryStorage) BatchUpdateService(ctx context.Context, services []*Service, call func(err error, services []*Service)) {
+	keys := make([][]byte, len(services), len(services))
+	values := make([][]byte, len(services), len(services))
+	for i, service := range services {
+		saveV := service.originService
+		key := []byte(service.name)
+		value, err := proto.Marshal(saveV)
+		if err != nil {
+			call(err, nil)
+			return
+		}
+		keys[i] = key
+		values[i] = value
+	}
+	if err := kvD.diskKv.WriteBatch(ctx, keys, values); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, services)
 }
 
-func (kvD *kvDiscoveryStorage) RemoveService(services *Service, call func(err error, services *Service)) {
-	
+func (kvD *kvDiscoveryStorage) RemoveService(ctx context.Context, service *Service, call func(err error, services *Service)) {
+	key := []byte(service.name)
+	if err := kvD.diskKv.Delete(ctx, key); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, service)
 }
 
-func (kvD *kvDiscoveryStorage) SaveCluster(cluster *Cluster, call func(err error, cluster *Cluster)) {
-	
+func (kvD *kvDiscoveryStorage) SaveCluster(ctx context.Context, cluster *Cluster, call func(err error, cluster *Cluster)) {
+	saveV := cluster.originCluster
+	key := []byte(cluster.name)
+	value, err := proto.Marshal(saveV)
+	if err != nil {
+		call(err, nil)
+		return
+	}
+	if err := kvD.diskKv.Write(ctx, key, value); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, cluster)
 }
 
-func (kvD *kvDiscoveryStorage) BatchUpdateCluster(clusters []*Cluster, call func(err error, clusters []*Cluster)) {
-	
+func (kvD *kvDiscoveryStorage) BatchUpdateCluster(ctx context.Context, clusters []*Cluster, call func(err error, clusters []*Cluster)) {
+	keys := make([][]byte, len(clusters), len(clusters))
+	values := make([][]byte, len(clusters), len(clusters))
+	for i, cluster := range clusters {
+		saveV := cluster.originCluster
+		key := []byte(cluster.name)
+		value, err := proto.Marshal(saveV)
+		if err != nil {
+			call(err, nil)
+			return
+		}
+		keys[i] = key
+		values[i] = value
+	}
+	if err := kvD.diskKv.WriteBatch(ctx, keys, values); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, clusters)
 }
 
-func (kvD *kvDiscoveryStorage) RemoveCluster(cluster *Cluster, call func(err error, cluster *Cluster)) {
-	
+func (kvD *kvDiscoveryStorage) RemoveCluster(ctx context.Context, cluster *Cluster, call func(err error, cluster *Cluster)) {
+	key := []byte(cluster.name)
+	if err := kvD.diskKv.Delete(ctx, key); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, cluster)
 }
 
-func (kvD *kvDiscoveryStorage) SaveInstance(instance Instance, call func(err error, instance Instance)) {
-	
+func (kvD *kvDiscoveryStorage) SaveInstance(ctx context.Context, instance *Instance, call func(err error, instance *Instance)) {
+	kvop := utils.IF(instance.IsTemporary(), kvD.memoryKv, kvD.diskKv).(storage.KVStorage)
+	key := []byte(instance.GetKey())
+	value, err := proto.Marshal(instance.originInstance)
+	if err != nil {
+		call(err, nil)
+		return
+	}
+	if err := kvop.Write(ctx, key, value); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, instance)
 }
 
-func (kvD *kvDiscoveryStorage) BatchUpdateInstance(instances []Instance, call func(err error, instances []Instance)) {
-	
+func (kvD *kvDiscoveryStorage) BatchUpdateInstance(ctx context.Context, instances []*Instance, call func(err error, instances []*Instance)) {
+	kvop := utils.IF(instances[0].IsTemporary(), kvD.memoryKv, kvD.diskKv).(storage.KVStorage)
+	keys := make([][]byte, len(instances), len(instances))
+	values := make([][]byte, len(instances), len(instances))
+	for i, instance := range instances {
+		key := []byte(instance.GetKey())
+		value, err := proto.Marshal(instance.originInstance)
+		if err != nil {
+			call(err, nil)
+			return
+		}
+		keys[i] = key
+		values[i] = value
+	}
+	if err := kvop.WriteBatch(ctx, keys, values); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, instances)
 }
 
-func (kvD *kvDiscoveryStorage) RemoveInstance(instance Instance, call func(err error, instance Instance)) {
-	
+func (kvD *kvDiscoveryStorage) RemoveInstance(ctx context.Context, instance *Instance, call func(err error, instance *Instance)) {
+	kvop := utils.IF(instance.IsTemporary(), kvD.memoryKv, kvD.diskKv).(storage.KVStorage)
+	key := []byte(instance.GetKey())
+	if err := kvop.Delete(ctx, key); err != nil {
+		call(err, nil)
+		return
+	}
+	call(nil, instance)
 }
 
 func (kvD *kvDiscoveryStorage) Name() string {
@@ -86,5 +203,6 @@ func (kvD *kvDiscoveryStorage) Name() string {
 }
 
 func (kvD *kvDiscoveryStorage) Destroy() {
-
+	kvD.memoryKv.Destroy()
+	kvD.diskKv.Destroy()
 }

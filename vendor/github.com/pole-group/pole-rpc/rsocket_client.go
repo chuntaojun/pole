@@ -22,23 +22,24 @@ import (
 )
 
 type RSocketClient struct {
-	createSocket func(endpoint Endpoint) (rsocket.Client, error)
-	repository   *EndpointRepository
-	rwLock       sync.RWMutex
-	sockets      map[string]rsocket.Client
-	bc           *BaseTransportClient
+	supplier   func(endpoint Endpoint) (rsocket.Client, error)
+	repository EndpointRepository
+	rwLock     sync.RWMutex
+	sockets    map[string]rsocket.Client
+	bc         *BaseTransportClient
 }
 
-func NewRSocketClient(openTSL bool, repository *EndpointRepository) (*RSocketClient, error) {
+//TODO 后续改造成为 Option 的模式
+func newRSocketClient(openTSL bool, repository EndpointRepository) (*RSocketClient, error) {
 
 	client := &RSocketClient{
 		rwLock:     sync.RWMutex{},
 		sockets:    make(map[string]rsocket.Client),
-		bc:         NewBaseClient(),
+		bc:         newBaseClient(),
 		repository: repository,
 	}
 
-	createSocket := func(endpoint Endpoint) (rsocket.Client, error) {
+	supplier := func(endpoint Endpoint) (rsocket.Client, error) {
 		c, err := rsocket.Connect().
 			OnClose(func(err error) {
 				defer client.rwLock.Unlock()
@@ -56,7 +57,7 @@ func NewRSocketClient(openTSL bool, repository *EndpointRepository) (*RSocketCli
 					conn = tls.Client(conn, &tls.Config{})
 				}
 
-				conn = &ProxyConn{
+				conn = &proxyConn{
 					Target: conn,
 					OnClose: func(conn net.Conn) {
 						client.bc.EventChan <- ConnectEvent{
@@ -78,7 +79,7 @@ func NewRSocketClient(openTSL bool, repository *EndpointRepository) (*RSocketCli
 		return c, err
 	}
 
-	client.createSocket = createSocket
+	client.supplier = supplier
 	return client, nil
 }
 
@@ -119,9 +120,7 @@ func (c *RSocketClient) Request(ctx context.Context, name string, req *ServerReq
 	return resp.(*ServerResponse), nil
 }
 
-func (c *RSocketClient) RequestChannel(ctx context.Context, name string, call func(resp *ServerResponse,
-	err error)) (RpcClientContext, error) {
-
+func (c *RSocketClient) RequestChannel(ctx context.Context, name string, call UserCall) (RpcClientContext, error) {
 	client, err := c.computeIfAbsent(name)
 	if err != nil {
 		return nil, err
@@ -153,6 +152,8 @@ func (c *RSocketClient) RequestChannel(ctx context.Context, name string, call fu
 		panic(err)
 	}).Subscribe(ctx)
 
+	// 为了确保 rpcCtx 中的 fSink 被正确赋值
+	// 这里是不是可以考虑直接使用 chan 做操作？
 	for {
 		if rpcCtx.fSink != nil {
 			break
@@ -163,6 +164,9 @@ func (c *RSocketClient) RequestChannel(ctx context.Context, name string, call fu
 }
 
 func (c *RSocketClient) Close() error {
+	for _, socket := range c.sockets {
+		_ = socket.Close()
+	}
 	return nil
 }
 
@@ -181,7 +185,7 @@ func (c *RSocketClient) computeIfAbsent(name string) (rsocket.Client, error) {
 		c.rwLock.RUnlock()
 		defer c.rwLock.Unlock()
 		c.rwLock.Lock()
-		client, err := c.createSocket(endpoint)
+		client, err := c.supplier(endpoint)
 		if err != nil {
 			return nil, err
 		}

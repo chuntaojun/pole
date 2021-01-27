@@ -29,13 +29,13 @@ type rSocketServerRpcContext struct {
 	fSink chan *ServerResponse
 }
 
-func newOnceRpcContext() *rSocketServerRpcContext {
+func newOnceRsRpcContext() *rSocketServerRpcContext {
 	return &rSocketServerRpcContext{
 		req: atomic.Value{},
 	}
 }
 
-func newMultiRpcContext() *rSocketServerRpcContext {
+func newMultiRsRpcContext() *rSocketServerRpcContext {
 	return &rSocketServerRpcContext{
 		req:   atomic.Value{},
 		fSink: make(chan *ServerResponse, 32),

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	polerpc "github.com/pole-group/pole-rpc"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	watch "k8s.io/apimachinery/pkg/watch"
@@ -45,7 +46,7 @@ const (
 	typeForKubernetesMemberLookup    = "kubernetes"
 )
 
-func CreateMemberLookup(ctx *common.ContextPole, config *sys.Properties, observer func(newMembers []*Member)) (MemberLookup,
+func CreateMemberLookup(ctx context.Context, config *sys.Properties, observer func(newMembers []*Member)) (MemberLookup,
 	error) {
 	var lookup MemberLookup
 	if config.IsStandaloneMode() {
@@ -64,7 +65,7 @@ func CreateMemberLookup(ctx *common.ContextPole, config *sys.Properties, observe
 	return lookup, err
 }
 
-func SwitchMemberLookupAndCloseOld(ctx *common.ContextPole, name string, config *sys.Properties, oldLookup MemberLookup, observer func(newMembers []*Member)) (MemberLookup, error) {
+func SwitchMemberLookupAndCloseOld(ctx context.Context, name string, config *sys.Properties, oldLookup MemberLookup, observer func(newMembers []*Member)) (MemberLookup, error) {
 	if config.IsStandaloneMode() {
 		return nil, ErrorNotSupportMode
 	}
@@ -80,20 +81,20 @@ func SwitchMemberLookupAndCloseOld(ctx *common.ContextPole, name string, config 
 	return newLookup, err
 }
 
-func createLookupByName(ctx *common.ContextPole, name string, config *sys.Properties) (MemberLookup, error) {
+func createLookupByName(ctx context.Context, name string, config *sys.Properties) (MemberLookup, error) {
 	var newLookup MemberLookup
 	switch name {
 	case typeForFileMemberLookup:
 		newLookup = &FileMemberLookup{
 			BaseMemberLookup{
-				ctx:    ctx.NewSubCtx(),
+				ctx:    ctx,
 				config: config,
 			},
 		}
 	case typeForAddressServerMemberLookup:
 		newLookup = &addressServerMemberLookup{
 			BaseMemberLookup: BaseMemberLookup{
-				ctx: ctx.NewSubCtx(),
+				ctx: ctx,
 			},
 			addressServer: "",
 			addressPort:   0,
@@ -103,7 +104,7 @@ func createLookupByName(ctx *common.ContextPole, name string, config *sys.Proper
 	case typeForKubernetesMemberLookup:
 		newLookup = &kubernetesMemberLookup{
 			BaseMemberLookup: BaseMemberLookup{
-				ctx: ctx.NewSubCtx(),
+				ctx: ctx,
 			},
 			k8sCfg: config.ClusterCfg.LookupCfg.K8sLookupCfg,
 		}
@@ -114,7 +115,7 @@ func createLookupByName(ctx *common.ContextPole, name string, config *sys.Proper
 }
 
 type BaseMemberLookup struct {
-	ctx      *common.ContextPole
+	ctx      context.Context
 	config   *sys.Properties
 	observer func(newMembers []*Member)
 }
@@ -169,7 +170,7 @@ func (s *kubernetesMemberLookup) Start() error {
 }
 
 func (s *kubernetesMemberLookup) startListener() {
-	utils.Go(common.NewCtxPole(), func(cxt *common.ContextPole) {
+	polerpc.Go(common.NewCtxPole(), func(cxt context.Context) {
 		for e := range s.watcher.ResultChan() {
 			f := func(e watch.Event) {
 				defer func() {
@@ -282,7 +283,7 @@ func (s *addressServerMemberLookup) Start() error {
 }
 
 func (s *addressServerMemberLookup) startWatchAddressServer() {
-	utils.DoTickerSchedule(s.ctx, func() {
+	polerpc.DoTickerSchedule(s.ctx, func() {
 		url := utils.BuildHttpsUrl(utils.BuildServerAddr(s.addressServer, s.addressPort), s.urlPath)
 		for {
 			if s.isShutdown {

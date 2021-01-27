@@ -11,6 +11,8 @@ import (
 	"math"
 	"sync"
 
+	polerpc "github.com/pole-group/pole-rpc"
+
 	"github.com/pole-group/pole/common"
 	"github.com/pole-group/pole/utils"
 )
@@ -273,7 +275,7 @@ func (p *Publisher) start() {
 	p.init.Do(func() {
 		ctx := common.NewCtxPole()
 		ctx.Write(utils.TraceIDKey, p.topic)
-		utils.Go(ctx, func(ctx *common.ContextPole) {
+		polerpc.Go(ctx, func(ctx context.Context) {
 			p.openHandler(ctx)
 		})
 	})
@@ -353,7 +355,7 @@ func (sp *SharePublisher) start() {
 	sp.init.Do(func() {
 		ctx := common.NewCtxPole()
 		ctx.Write(utils.TraceIDKey, sp.topic)
-		utils.Go(ctx, func(ctx *common.ContextPole) {
+		polerpc.Go(ctx, func(ctx context.Context) {
 			sp.openHandler(ctx)
 		})
 	})

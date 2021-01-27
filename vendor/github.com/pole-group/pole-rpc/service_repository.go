@@ -25,23 +25,33 @@ func (e Endpoint) GetKey() string {
 	return e.Key
 }
 
+type EndpointRepository interface {
+	//SelectOne 选择一个服务的实例进行随机访问
+	SelectOne(name string) (bool, Endpoint)
+	//Put 为某个服务添加一个服务实例
+	Put(name string, endpoint Endpoint)
+	//Remove 从某个服务中移除实例
+	Remove(name string, endpoint Endpoint)
+}
+
 //EndpointRepository 管理实例的仓库
-type EndpointRepository struct {
-	rwLock        sync.RWMutex
+type DefaultEndpointRepository struct {
+	rwLock       sync.RWMutex
 	serviceIndex map[string]map[string]Endpoint
 	serviceMap   map[string][]string
 }
 
-func NewEndpointRepository() *EndpointRepository {
-	return &EndpointRepository{
-		rwLock:      sync.RWMutex{},
+//NewDefaultEndpointRepository 创建一个默认的 EndpointRepository
+func NewDefaultEndpointRepository() EndpointRepository {
+	return &DefaultEndpointRepository{
+		rwLock:       sync.RWMutex{},
 		serviceIndex: make(map[string]map[string]Endpoint),
-		serviceMap: make(map[string][]string),
+		serviceMap:   make(map[string][]string),
 	}
 }
 
 //SelectOne 选择一个服务的实例进行随机访问
-func (erp *EndpointRepository) SelectOne(name string) (bool, Endpoint) {
+func (erp *DefaultEndpointRepository) SelectOne(name string) (bool, Endpoint) {
 	defer erp.rwLock.RUnlock()
 	erp.rwLock.RLock()
 	if v, exist := erp.serviceMap[name]; exist {
@@ -52,7 +62,7 @@ func (erp *EndpointRepository) SelectOne(name string) (bool, Endpoint) {
 }
 
 //Put 为某个服务添加一个服务实例
-func (erp *EndpointRepository) Put(name string, endpoint Endpoint) {
+func (erp *DefaultEndpointRepository) Put(name string, endpoint Endpoint) {
 	defer erp.rwLock.Unlock()
 	erp.rwLock.Lock()
 	endpoint.name = name
@@ -68,4 +78,26 @@ func (erp *EndpointRepository) Put(name string, endpoint Endpoint) {
 		erp.serviceMap[name] = li
 	}
 	instance[endpoint.GetKey()] = endpoint
+}
+
+//Remove 从某个服务中移除实例
+func (erp *DefaultEndpointRepository) Remove(name string, endpoint Endpoint) {
+	defer erp.rwLock.Unlock()
+	erp.rwLock.Lock()
+	endpoint.name = name
+	if _, exist := erp.serviceIndex[name]; !exist {
+		return
+	}
+
+	instance := erp.serviceIndex[name]
+	if _, exist := instance[endpoint.GetKey()]; exist {
+		delete(instance, endpoint.GetKey())
+		li := erp.serviceMap[name]
+		target := li[:0]
+		for _, item := range li {
+			if item != endpoint.GetKey() {
+				target = append(target, item)
+			}
+		}
+	}
 }

@@ -5,13 +5,13 @@
 package plugin
 
 import (
-	"github.com/pole-group/pole/common"
+	"context"
 )
 
 type Plugin interface {
 	Name() string
 
-	Init(ctx *common.ContextPole)
+	Init(ctx context.Context) error
 
 	Run()
 

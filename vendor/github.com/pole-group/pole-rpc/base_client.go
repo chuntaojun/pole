@@ -24,6 +24,8 @@ type RpcServerContext interface {
 	Complete()
 }
 
+type UserCall func(resp *ServerResponse, err error)
+
 type RequestResponseHandler func(cxt context.Context, rpcCtx RpcServerContext)
 
 type RequestChannelHandler func(cxt context.Context, rpcCtx RpcServerContext)
@@ -34,41 +36,41 @@ const (
 
 var EmptyBytes []byte
 
-type ProxyConn struct {
+type proxyConn struct {
 	Target  net.Conn
 	OnClose func(conn net.Conn)
 }
 
-func (c *ProxyConn) Read(b []byte) (n int, err error) {
+func (c *proxyConn) Read(b []byte) (n int, err error) {
 	return c.Target.Read(b)
 }
 
-func (c *ProxyConn) Write(b []byte) (n int, err error) {
+func (c *proxyConn) Write(b []byte) (n int, err error) {
 	return c.Target.Write(b)
 }
 
-func (c *ProxyConn) Close() error {
+func (c *proxyConn) Close() error {
 	c.OnClose(c.Target)
 	return c.Target.Close()
 }
 
-func (c *ProxyConn) LocalAddr() net.Addr {
+func (c *proxyConn) LocalAddr() net.Addr {
 	return c.Target.LocalAddr()
 }
 
-func (c *ProxyConn) RemoteAddr() net.Addr {
+func (c *proxyConn) RemoteAddr() net.Addr {
 	return c.Target.RemoteAddr()
 }
 
-func (c *ProxyConn) SetDeadline(t time.Time) error {
+func (c *proxyConn) SetDeadline(t time.Time) error {
 	return c.Target.SetDeadline(t)
 }
 
-func (c *ProxyConn) SetReadDeadline(t time.Time) error {
+func (c *proxyConn) SetReadDeadline(t time.Time) error {
 	return c.Target.SetReadDeadline(t)
 }
 
-func (c *ProxyConn) SetWriteDeadline(t time.Time) error {
+func (c *proxyConn) SetWriteDeadline(t time.Time) error {
 	return c.Target.SetWriteDeadline(t)
 }
 
@@ -94,13 +96,15 @@ type BaseTransportClient struct {
 	CancelFs  []context.CancelFunc
 }
 
-func NewBaseClient() *BaseTransportClient {
-	return &BaseTransportClient{
+func newBaseClient() *BaseTransportClient {
+	bClient := &BaseTransportClient{
 		rwLock:    sync.RWMutex{},
 		Watchers:  make([]ConnectEventWatcher, 0, 0),
 		EventChan: make(chan ConnectEvent, 16),
 		Filters:   make([]func(req *ServerRequest), 0, 0),
 	}
+	bClient.startConnectEventListener()
+	return bClient
 }
 
 func (btc *BaseTransportClient) startConnectEventListener() {

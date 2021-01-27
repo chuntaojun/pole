@@ -5,6 +5,7 @@
 package healthcheck
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 
 	polerpc "github.com/pole-group/pole-rpc"
 
-	"github.com/pole-group/pole/common"
 	"github.com/pole-group/pole/pojo"
 	"github.com/pole-group/pole/utils"
 )
@@ -43,7 +43,7 @@ func (ctf *customerTimeF) Run() {
 type CustomHealthCheckPlugin struct {
 	owner          *HealthCheckManager
 	rwLock         sync.RWMutex
-	htw            *utils.HashTimeWheel
+	htw            *polerpc.HashTimeWheel
 	taskRepository map[string]*customerTimeF
 }
 
@@ -51,9 +51,10 @@ func (h *CustomHealthCheckPlugin) Name() string {
 	return healthcheckCustomer
 }
 
-func (h *CustomHealthCheckPlugin) Init(ctx *common.ContextPole) {
+func (h *CustomHealthCheckPlugin) Init(ctx context.Context) error {
 	h.taskRepository = make(map[string]*customerTimeF)
-	h.htw = utils.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	h.htw = polerpc.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	return nil
 }
 
 func (h *CustomHealthCheckPlugin) Run() {
@@ -108,7 +109,7 @@ type ConnectionBeatHealthCheckPlugin struct {
 	owner          *HealthCheckManager
 	client         polerpc.TransportClient
 	rwLock         sync.RWMutex
-	htw            *utils.HashTimeWheel
+	htw            *polerpc.HashTimeWheel
 	taskRepository map[string]*heartbeatTask
 }
 
@@ -116,9 +117,10 @@ func (h *ConnectionBeatHealthCheckPlugin) Name() string {
 	return HealthcheckHeartbeat
 }
 
-func (h *ConnectionBeatHealthCheckPlugin) Init(ctx *common.ContextPole) {
+func (h *ConnectionBeatHealthCheckPlugin) Init(ctx context.Context) error {
 	h.taskRepository = make(map[string]*heartbeatTask)
-	h.htw = utils.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	h.htw = polerpc.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	return nil
 }
 
 func (h *ConnectionBeatHealthCheckPlugin) Run() {
@@ -195,11 +197,11 @@ type HttpCodeHealthCheckPlugin struct {
 	owner          *HealthCheckManager
 	client         *http.Client
 	rwLock         sync.RWMutex
-	htw            *utils.HashTimeWheel
+	htw            *polerpc.HashTimeWheel
 	taskRepository map[string]*httpCodeTask
 }
 
-func (hch *HttpCodeHealthCheckPlugin) Init(cxt *common.ContextPole) {
+func (hch *HttpCodeHealthCheckPlugin) Init(cxt context.Context) error {
 	hch.client = &http.Client{
 		Transport: &http.Transport{
 			MaxIdleConns:          1200,            // 连接池中最大连接数
@@ -211,7 +213,8 @@ func (hch *HttpCodeHealthCheckPlugin) Init(cxt *common.ContextPole) {
 		Timeout: time.Duration(30) * time.Second,
 	}
 	hch.taskRepository = make(map[string]*httpCodeTask)
-	hch.htw = utils.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	hch.htw = polerpc.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	return nil
 }
 
 func (hch *HttpCodeHealthCheckPlugin) Run() {
@@ -261,7 +264,7 @@ func (hch *HttpCodeHealthCheckPlugin) Destroy() {
 type TcpHealthCheckPlugin struct {
 	owner          *HealthCheckManager
 	rwLock         sync.RWMutex
-	htw            *utils.HashTimeWheel
+	htw            *polerpc.HashTimeWheel
 	taskRepository map[string]*tcpClient
 }
 
@@ -309,9 +312,10 @@ func (h *TcpHealthCheckPlugin) Name() string {
 	return HealthcheckTcp
 }
 
-func (h *TcpHealthCheckPlugin) Init(ctx *common.ContextPole) {
+func (h *TcpHealthCheckPlugin) Init(ctx context.Context) error {
 	h.taskRepository = make(map[string]*tcpClient)
-	h.htw = utils.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	h.htw = polerpc.NewTimeWheel(time.Duration(5)*time.Second, 16)
+	return nil
 }
 
 func (h *TcpHealthCheckPlugin) Run() {

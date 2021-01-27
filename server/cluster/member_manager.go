@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	polerpc "github.com/pole-group/pole-rpc"
 
 	"github.com/pole-group/pole/common"
 	"github.com/pole-group/pole/constants"
@@ -250,7 +251,7 @@ func (s *ServerClusterManager) MemberChange(newMembers []*Member) {
 }
 
 func (s *ServerClusterManager) openReportSelfInfoToOtherWork() {
-	utils.DoTimerSchedule(common.NewCtxPole(), func() {
+	polerpc.DoTimerSchedule(common.NewCtxPole(), func() {
 
 		waitReport := KRandomMember(3, s.GetMemberList(), func(m *Member) bool {
 			return m.Status == Health

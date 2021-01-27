@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/dgraph-io/badger/v2"
 
-	"github.com/pole-group/pole/common"
 	"github.com/pole-group/pole/utils"
 )
 
@@ -86,7 +86,7 @@ const (
 	BadgerMemoryKv
 )
 
-func NewKVStorage(ctx *common.ContextPole, t KvType) (KVStorage, error) {
+func NewKVStorage(ctx context.Context, t KvType) (KVStorage, error) {
 	switch t {
 	case MemoryKv:
 		kv := &memoryKVStorage{}
@@ -100,21 +100,23 @@ func NewKVStorage(ctx *common.ContextPole, t KvType) (KVStorage, error) {
 }
 
 type KVStorage interface {
-	init(cxt *common.ContextPole) error
+	init(cxt context.Context) error
 
 	RegisterHook(t HookType, h KvHook)
 
-	Read(ctx *common.ContextPole, key []byte) ([]byte, error)
+	Read(ctx context.Context, key []byte) ([]byte, error)
 
-	ReadBatch(ctx *common.ContextPole, keys [][]byte) ([][]byte, error)
+	ReadBatch(ctx context.Context, keys [][]byte) ([][]byte, error)
 
-	Write(ctx *common.ContextPole, key []byte, value []byte) error
+	Write(ctx context.Context, key []byte, value []byte) error
 
-	WriteBatch(ctx *common.ContextPole, keys [][]byte, values [][]byte) error
+	WriteBatch(ctx context.Context, keys [][]byte, values [][]byte) error
 
-	Delete(ctx *common.ContextPole, key []byte) error
+	Delete(ctx context.Context, key []byte) error
 
-	DeleteBatch(ctx *common.ContextPole, keys [][]byte) error
+	DeleteBatch(ctx context.Context, keys [][]byte) error
+
+	DeletePrefix(ctx context.Context, prefixes ...[]byte) error
 
 	Size() int64
 
@@ -345,7 +347,7 @@ type memoryKVStorage struct {
 	reference atomic.Value // map[string][]byte
 }
 
-func (mks *memoryKVStorage) init(cxt *common.ContextPole) error {
+func (mks *memoryKVStorage) init(cxt context.Context) error {
 	mks.lock = sync.RWMutex{}
 	mks.reference = atomic.Value{}
 	mks.reference.Store(make(map[string][]byte))
@@ -371,13 +373,13 @@ func (mks *memoryKVStorage) RemoveHook(t HookType, h KvHook) {
 	mks.kh.RegisterHook(t, h)
 }
 
-func (mks *memoryKVStorage) Read(ctx *common.ContextPole, key []byte) ([]byte, error) {
+func (mks *memoryKVStorage) Read(ctx context.Context, key []byte) ([]byte, error) {
 	defer mks.lock.RUnlock()
 	mks.lock.RLock()
 	return mks.reference.Load().(map[string][]byte)[string(key)], nil
 }
 
-func (mks *memoryKVStorage) ReadBatch(ctx *common.ContextPole, keys [][]byte) ([][]byte, error) {
+func (mks *memoryKVStorage) ReadBatch(ctx context.Context, keys [][]byte) ([][]byte, error) {
 	defer mks.lock.RUnlock()
 	mks.lock.RLock()
 	values := make([][]byte, len(keys), len(keys))
@@ -387,7 +389,7 @@ func (mks *memoryKVStorage) ReadBatch(ctx *common.ContextPole, keys [][]byte) ([
 	return values, nil
 }
 
-func (mks *memoryKVStorage) Write(ctx *common.ContextPole, key []byte, value []byte) error {
+func (mks *memoryKVStorage) Write(ctx context.Context, key []byte, value []byte) error {
 	defer mks.lock.Unlock()
 	mks.lock.Lock()
 	k := string(key)
@@ -397,7 +399,7 @@ func (mks *memoryKVStorage) Write(ctx *common.ContextPole, key []byte, value []b
 	return nil
 }
 
-func (mks *memoryKVStorage) WriteBatch(ctx *common.ContextPole, keys [][]byte, values [][]byte) error {
+func (mks *memoryKVStorage) WriteBatch(ctx context.Context, keys [][]byte, values [][]byte) error {
 	defer mks.lock.Unlock()
 	mks.lock.Lock()
 	for i, key := range keys {
@@ -410,19 +412,23 @@ func (mks *memoryKVStorage) WriteBatch(ctx *common.ContextPole, keys [][]byte, v
 	return nil
 }
 
-func (mks *memoryKVStorage) Delete(ctx *common.ContextPole, key []byte) error {
+func (mks *memoryKVStorage) Delete(ctx context.Context, key []byte) error {
 	defer mks.lock.Unlock()
 	mks.lock.Lock()
 	delete(mks.reference.Load().(map[string][]byte), string(key))
 	return nil
 }
 
-func (mks *memoryKVStorage) DeleteBatch(ctx *common.ContextPole, keys [][]byte) error {
+func (mks *memoryKVStorage) DeleteBatch(ctx context.Context, keys [][]byte) error {
 	defer mks.lock.Unlock()
 	mks.lock.Lock()
 	for _, key := range keys {
 		delete(mks.reference.Load().(map[string][]byte), string(key))
 	}
+	return nil
+}
+
+func (mks *memoryKVStorage) DeletePrefix(ctx context.Context, prefixes ...[]byte) error  {
 	return nil
 }
 
@@ -441,7 +447,7 @@ type badgerKVStorage struct {
 	kh *kvHookHolder
 }
 
-func (bks *badgerKVStorage) init(cxt *common.ContextPole) error {
+func (bks *badgerKVStorage) init(cxt context.Context) error {
 	bks.kh = newKvHookHolder()
 	opt := badger.
 		DefaultOptions(cxt.Value("kv_dir").(string)).
@@ -458,7 +464,7 @@ func (bks *badgerKVStorage) RegisterHook(t HookType, h KvHook) {
 	bks.kh.RegisterHook(t, h)
 }
 
-func (bks *badgerKVStorage) Read(ctx *common.ContextPole, key []byte) ([]byte, error) {
+func (bks *badgerKVStorage) Read(ctx context.Context, key []byte) ([]byte, error) {
 	txn := bks.kv.NewTransaction(false)
 	item, err := txn.Get(key)
 	if err != nil {
@@ -468,7 +474,7 @@ func (bks *badgerKVStorage) Read(ctx *common.ContextPole, key []byte) ([]byte, e
 	return item.ValueCopy(v)
 }
 
-func (bks *badgerKVStorage) ReadBatch(ctx *common.ContextPole, keys [][]byte) ([][]byte, error) {
+func (bks *badgerKVStorage) ReadBatch(ctx context.Context, keys [][]byte) ([][]byte, error) {
 	vs := make([][]byte, 0, 0)
 	txn := bks.kv.NewTransaction(false)
 	for _, key := range keys {
@@ -486,7 +492,7 @@ func (bks *badgerKVStorage) ReadBatch(ctx *common.ContextPole, keys [][]byte) ([
 	return vs, nil
 }
 
-func (bks *badgerKVStorage) Write(ctx *common.ContextPole, key []byte, value []byte) error {
+func (bks *badgerKVStorage) Write(ctx context.Context, key []byte, value []byte) error {
 	txn := bks.kv.NewWriteBatch()
 	if err := txn.Set(key, value); err != nil {
 		txn.Cancel()
@@ -496,7 +502,7 @@ func (bks *badgerKVStorage) Write(ctx *common.ContextPole, key []byte, value []b
 	}
 }
 
-func (bks *badgerKVStorage) WriteBatch(ctx *common.ContextPole, keys [][]byte, values [][]byte) error {
+func (bks *badgerKVStorage) WriteBatch(ctx context.Context, keys [][]byte, values [][]byte) error {
 	txn := bks.kv.NewWriteBatch()
 	for i, k := range keys {
 		if err := txn.Set(k, values[i]); err != nil {
@@ -507,7 +513,7 @@ func (bks *badgerKVStorage) WriteBatch(ctx *common.ContextPole, keys [][]byte, v
 	return txn.Flush()
 }
 
-func (bks *badgerKVStorage) Delete(ctx *common.ContextPole, key []byte) error {
+func (bks *badgerKVStorage) Delete(ctx context.Context, key []byte) error {
 	txn := bks.kv.NewTransaction(true)
 	if err := txn.Delete(key); err != nil {
 		txn.Discard()
@@ -516,7 +522,7 @@ func (bks *badgerKVStorage) Delete(ctx *common.ContextPole, key []byte) error {
 	return txn.Commit()
 }
 
-func (bks *badgerKVStorage) DeleteBatch(ctx *common.ContextPole, keys [][]byte) error {
+func (bks *badgerKVStorage) DeleteBatch(ctx context.Context, keys [][]byte) error {
 	txn := bks.kv.NewTransaction(true)
 	for _, key := range keys {
 		if err := txn.Delete(key); err != nil {
@@ -525,6 +531,10 @@ func (bks *badgerKVStorage) DeleteBatch(ctx *common.ContextPole, keys [][]byte) 
 		}
 	}
 	return txn.Commit()
+}
+
+func (bks *badgerKVStorage) DeletePrefix(ctx context.Context, prefixes ...[]byte) error {
+	return bks.kv.DropPrefix(prefixes...)
 }
 
 func (bks *badgerKVStorage) Size() int64 {

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -9,8 +10,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/pole-group/pole/common"
 )
 
 const (
@@ -41,15 +40,15 @@ type LoggerCfg struct {
 
 // 日志基本接口
 type Logger interface {
-	Debug(ctx *common.ContextPole, format string, args ...interface{})
+	Debug(ctx context.Context, format string, args ...interface{})
 
-	Info(ctx *common.ContextPole, format string, args ...interface{})
+	Info(ctx context.Context, format string, args ...interface{})
 
-	Warn(ctx *common.ContextPole, format string, args ...interface{})
+	Warn(ctx context.Context, format string, args ...interface{})
 
-	Error(ctx *common.ContextPole, format string, args ...interface{})
+	Error(ctx context.Context, format string, args ...interface{})
 
-	Fatal(ctx *common.ContextPole, format string, args ...interface{})
+	Fatal(ctx context.Context, format string, args ...interface{})
 
 	SetLoggerLevel(level logLevel)
 }
@@ -69,35 +68,35 @@ type proxyLogger struct {
 	loggerLevel logLevel
 }
 
-func (pl *proxyLogger) Debug(ctx *common.ContextPole, format string, args ...interface{}) {
+func (pl *proxyLogger) Debug(ctx context.Context, format string, args ...interface{}) {
 	if atomic.LoadInt32((*int32)(&pl.loggerLevel)) > int32(LogLevelDebug) {
 		return
 	}
 	pl.proxy.Debug(ctx, format, args...)
 }
 
-func (pl *proxyLogger) Info(ctx *common.ContextPole, format string, args ...interface{}) {
+func (pl *proxyLogger) Info(ctx context.Context, format string, args ...interface{}) {
 	if atomic.LoadInt32((*int32)(&pl.loggerLevel)) > int32(LogLevelInfo) {
 		return
 	}
 	pl.proxy.Info(ctx, format, args...)
 }
 
-func (pl *proxyLogger) Warn(ctx *common.ContextPole, format string, args ...interface{}) {
+func (pl *proxyLogger) Warn(ctx context.Context, format string, args ...interface{}) {
 	if atomic.LoadInt32((*int32)(&pl.loggerLevel)) > int32(LogLevelWarn) {
 		return
 	}
 	pl.proxy.Warn(ctx, format, args...)
 }
 
-func (pl *proxyLogger) Error(ctx *common.ContextPole, format string, args ...interface{}) {
+func (pl *proxyLogger) Error(ctx context.Context, format string, args ...interface{}) {
 	if atomic.LoadInt32((*int32)(&pl.loggerLevel)) > int32(LogLevelError) {
 		return
 	}
 	pl.proxy.Error(ctx, format, args...)
 }
 
-func (pl *proxyLogger) Fatal(ctx *common.ContextPole, format string, args ...interface{}) {
+func (pl *proxyLogger) Fatal(ctx context.Context, format string, args ...interface{}) {
 	if atomic.LoadInt32((*int32)(&pl.loggerLevel)) > int32(LogLevelFatal) {
 		return
 	}
@@ -116,31 +115,31 @@ type fileLogger struct {
 	logCfg LoggerCfg
 }
 
-func (zl *fileLogger) Debug(ctx *common.ContextPole, format string, args ...interface{}) {
+func (zl *fileLogger) Debug(ctx context.Context, format string, args ...interface{}) {
 	defer zl.lock.RUnlock()
 	zl.lock.RLock()
 	zl.log.Printf(getNowTimeStr()+" [DEBUG]"+HeaderFormat+format, convertToLogArgs(ctx, args)...)
 }
 
-func (zl *fileLogger) Info(ctx *common.ContextPole, format string, args ...interface{}) {
+func (zl *fileLogger) Info(ctx context.Context, format string, args ...interface{}) {
 	defer zl.lock.RUnlock()
 	zl.lock.RLock()
 	zl.log.Printf(getNowTimeStr()+" [INFO]"+HeaderFormat+format, convertToLogArgs(ctx, args)...)
 }
 
-func (zl *fileLogger) Warn(ctx *common.ContextPole, format string, args ...interface{}) {
+func (zl *fileLogger) Warn(ctx context.Context, format string, args ...interface{}) {
 	defer zl.lock.RUnlock()
 	zl.lock.RLock()
 	zl.log.Printf(getNowTimeStr()+" [WARN]"+HeaderFormat+format, convertToLogArgs(ctx, args)...)
 }
 
-func (zl *fileLogger) Error(ctx *common.ContextPole, format string, args ...interface{}) {
+func (zl *fileLogger) Error(ctx context.Context, format string, args ...interface{}) {
 	defer zl.lock.RUnlock()
 	zl.lock.RLock()
 	zl.log.Printf(getNowTimeStr()+" [ERROR]"+HeaderFormat+format, convertToLogArgs(ctx, args)...)
 }
 
-func (zl *fileLogger) Fatal(ctx *common.ContextPole, format string, args ...interface{}) {
+func (zl *fileLogger) Fatal(ctx context.Context, format string, args ...interface{}) {
 	defer zl.lock.RUnlock()
 	zl.lock.RLock()
 	zl.log.Printf(getNowTimeStr()+" [FATAL]"+HeaderFormat+format, convertToLogArgs(ctx, args)...)
@@ -159,7 +158,7 @@ func NewTestLogger(logCfg LoggerCfg) Logger {
 }
 
 // 重新构建日志参数
-func convertToLogArgs(ctx *common.ContextPole, args []interface{}) []interface{} {
+func convertToLogArgs(ctx context.Context, args []interface{}) []interface{} {
 	a := make([]interface{}, len(args)+3)
 	a[0] = GetTraceIDFromContext(ctx)
 	a[1], a[2] = GetCaller(4)
@@ -210,23 +209,23 @@ func (zl *fileLogger) initLogger(logCfg LoggerCfg, name string) error {
 type testLogger struct {
 }
 
-func (tl *testLogger) Debug(ctx *common.ContextPole, format string, args ...interface{}) {
+func (tl *testLogger) Debug(ctx context.Context, format string, args ...interface{}) {
 	fmt.Printf(getNowTimeStr()+" [DEBUG]"+HeaderFormat+format+"\n", convertToLogArgs(ctx, args)...)
 }
 
-func (tl *testLogger) Info(ctx *common.ContextPole, format string, args ...interface{}) {
+func (tl *testLogger) Info(ctx context.Context, format string, args ...interface{}) {
 	fmt.Printf(getNowTimeStr()+" [INFO]"+HeaderFormat+format+"\n", convertToLogArgs(ctx, args)...)
 }
 
-func (tl *testLogger) Warn(ctx *common.ContextPole, format string, args ...interface{}) {
+func (tl *testLogger) Warn(ctx context.Context, format string, args ...interface{}) {
 	fmt.Printf(getNowTimeStr()+" [WARN]"+HeaderFormat+format+"\n", convertToLogArgs(ctx, args)...)
 }
 
-func (tl *testLogger) Error(ctx *common.ContextPole, format string, args ...interface{}) {
+func (tl *testLogger) Error(ctx context.Context, format string, args ...interface{}) {
 	fmt.Printf(getNowTimeStr()+" [ERROR]"+HeaderFormat+format+"\n", convertToLogArgs(ctx, args)...)
 }
 
-func (tl *testLogger) Fatal(ctx *common.ContextPole, format string, args ...interface{}) {
+func (tl *testLogger) Fatal(ctx context.Context, format string, args ...interface{}) {
 	fmt.Printf(getNowTimeStr()+" [FATAL]"+HeaderFormat+format+"\n", convertToLogArgs(ctx, args)...)
 }
 
@@ -246,7 +245,7 @@ func getNowTimeStr() string {
 }
 
 // 从 context 中获取到 trace-id
-func GetTraceIDFromContext(ctx *common.ContextPole) string {
+func GetTraceIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}

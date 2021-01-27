@@ -1,8 +1,11 @@
 package discovery
 
 import (
+	"context"
 	"sync"
 	"time"
+
+	polerpc "github.com/pole-group/pole-rpc"
 
 	"github.com/pole-group/pole/common"
 	"github.com/pole-group/pole/utils"
@@ -10,32 +13,32 @@ import (
 
 type ExpireLessWatcher func(keys []string)
 
-type LessHolder struct {
+type Lessor struct {
 	ctx        *common.ContextPole
 	lessLock   sync.RWMutex
 	lessRep    map[string]time.Duration
 	rwLock     sync.RWMutex
 	expireKeys chan []string
 	watchers   []ExpireLessWatcher
-	timer      *utils.HashTimeWheel
+	timer      *polerpc.HashTimeWheel
 }
 
-func NewLessHolder(ctx *common.ContextPole) *LessHolder {
-	lh := &LessHolder{
+func NewLessor(ctx *common.ContextPole) *Lessor {
+	lh := &Lessor{
 		ctx:      ctx,
 		lessLock: sync.RWMutex{},
 		lessRep:  make(map[string]time.Duration),
 		rwLock:   sync.RWMutex{},
 		watchers: make([]ExpireLessWatcher, 0, 0),
-		timer:    utils.NewTimeWheel(time.Duration(1)*time.Second, 15),
+		timer:    polerpc.NewTimeWheel(time.Duration(1)*time.Second, 15),
 	}
 
 	lh.start()
 	return lh
 }
 
-func (lh *LessHolder) start() {
-	utils.Go(lh.ctx.NewSubCtx(), func(ctx *common.ContextPole) {
+func (lh *Lessor) start() {
+	polerpc.Go(lh.ctx.NewSubCtx(), func(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
@@ -47,11 +50,11 @@ func (lh *LessHolder) start() {
 	})
 }
 
-func (lh *LessHolder) GrantLess(instance Instance) {
+func (lh *Lessor) GrantLess(instance Instance) {
 	key := instance.GetKey()
 	defer lh.lessLock.Unlock()
 	lh.lessLock.Lock()
-	expire := time.Duration(15+time.Now().Unix()) * time.Second
+	expire := time.Duration(15+utils.TimeHolder.Load().(int64)) * time.Second
 	lh.lessRep[key] = expire
 	lh.timer.AddTask(&less{
 		key: key,
@@ -59,7 +62,7 @@ func (lh *LessHolder) GrantLess(instance Instance) {
 	}, expire)
 }
 
-func (lh *LessHolder) RenewLess(instance Instance) {
+func (lh *Lessor) RenewLess(instance Instance) {
 	key := instance.GetKey()
 	defer lh.lessLock.Unlock()
 	lh.lessLock.Lock()
@@ -68,20 +71,20 @@ func (lh *LessHolder) RenewLess(instance Instance) {
 	}
 }
 
-func (lh *LessHolder) RevokeLess(instance Instance) {
+func (lh *Lessor) RevokeLess(instance Instance) {
 	key := instance.GetKey()
 	defer lh.lessLock.Unlock()
 	lh.lessLock.Lock()
 	delete(lh.lessRep, key)
 }
 
-func (lh *LessHolder) AddExpireWatcher(observer ExpireLessWatcher) {
+func (lh *Lessor) AddExpireWatcher(observer ExpireLessWatcher) {
 	defer lh.rwLock.Unlock()
 	lh.rwLock.Lock()
 	lh.watchers = append(lh.watchers, observer)
 }
 
-func (lh *LessHolder) notifyExpire(keys []string) {
+func (lh *Lessor) notifyExpire(keys []string) {
 	defer lh.rwLock.RUnlock()
 	lh.rwLock.RLock()
 	for _, watcher := range lh.watchers {
@@ -91,14 +94,15 @@ func (lh *LessHolder) notifyExpire(keys []string) {
 
 type less struct {
 	key string
-	lh  *LessHolder
+	lh  *Lessor
 }
 
 func (l *less) Run() {
 	defer l.lh.rwLock.RUnlock()
 	l.lh.rwLock.RLock()
 	v := l.lh.lessRep[l.key]
-	if int64(v) <= time.Now().Unix() {
+	//为了避免由于调用时间陷入系统调用所带来的额外开销，这里使用一个定时任务去定期的查询时间信息
+	if int64(v) <= utils.TimeHolder.Load().(int64) {
 		l.lh.expireKeys <- []string{l.key}
 	} else {
 		l.lh.timer.AddTask(l, v)

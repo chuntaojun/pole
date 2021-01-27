@@ -5,11 +5,11 @@
 package plugin
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
-	"github.com/pole-group/pole/common"
-	"github.com/pole-group/pole/utils"
+	polerpc "github.com/pole-group/pole-rpc"
 )
 
 type PluginCenter struct {
@@ -26,14 +26,14 @@ func init()  {
 	}
 }
 
-func RegisterPlugin(cxt *common.ContextPole, p Plugin) (bool, error) {
+func RegisterPlugin(cxt context.Context, p Plugin) (bool, error) {
 	defer pluginCenter.rwLock.Unlock()
 	pluginCenter.rwLock.Lock()
 	if _, exist := pluginCenter.pluginRepository[p.Name()]; exist {
 		return false, fmt.Errorf("plugin %s exist", p.Name())
 	}
 	pluginCenter.pluginRepository[p.Name()] = p
-	utils.Go(cxt, func(ctx *common.ContextPole) {
+	polerpc.Go(cxt, func(ctx context.Context) {
 		p.Init(ctx)
 		p.Run()
 	})

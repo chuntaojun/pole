@@ -6,6 +6,7 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/protobuf/ptypes"
@@ -45,6 +46,9 @@ func NewDiscoveryServer(cfg sys.Properties, ctx *common.ContextPole, httpServer 
 func (d *DiscoveryServer) Init(ctx *common.ContextPole) {
 	d.console.Init(ctx)
 	d.api.Init(ctx)
+	if ok, err := InitDiscoveryStorage(); !ok || err != nil {
+		panic(fmt.Errorf("init discovery storage plugin failed! err : %#v", err))
+	}
 }
 
 func (d *DiscoveryServer) Shutdown() {
@@ -52,6 +56,7 @@ func (d *DiscoveryServer) Shutdown() {
 	d.api.Shutdown()
 }
 
+// DiscoveryConsole 用于控制台
 type DiscoveryConsole struct {
 	httpServer *gin.Engine
 	core       *DiscoveryCore

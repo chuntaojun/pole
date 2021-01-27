@@ -5,10 +5,11 @@
 package discovery
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
-	pole_rpc "github.com/pole-group/pole-rpc"
+	polerpc "github.com/pole-group/pole-rpc"
 
 	"github.com/pole-group/pole/pojo"
 )
@@ -33,18 +34,18 @@ type QueryInstance struct {
 type ServiceManager struct {
 	lock       sync.RWMutex
 	core       *DiscoveryCore
-	lessHolder *LessHolder
+	lessHolder *Lessor
 	services   map[string]map[string]*Service
 }
 
-func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister, sink pole_rpc.RpcServerContext) {
+func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister, sink polerpc.RpcServerContext) {
 	namespaceId := req.NamespaceId
 	serviceName := req.Instance.ServiceName
 	groupName := req.Instance.Group
 
 	name := fmt.Sprintf("%s@@%s", serviceName, groupName)
 	if err := sm.createServiceIfAbsent(namespaceId, serviceName, groupName); err != nil {
-		sink.Send(&pole_rpc.ServerResponse{
+		sink.Send(&polerpc.ServerResponse{
 			Code: -1,
 			Msg:  err.Error(),
 		})
@@ -59,15 +60,15 @@ func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister, sink pole_rpc.
 
 	cluster := sm.services[namespaceId][name].Clusters[clusterName]
 	if cluster == nil {
-		sink.Send(&pole_rpc.ServerResponse{
+		sink.Send(&polerpc.ServerResponse{
 			Code: -1,
 			Msg:  fmt.Sprintf("Cluster : %s not exist in service : %s, namespace : %s", clusterName, name, namespaceId),
 		})
 		return
 	}
 
-	if ri := cluster.FindRandom(); !isEmptyInstance(ri) && ri.temporary != instance.temporary {
-		sink.Send(&pole_rpc.ServerResponse{
+	if ri := cluster.FindRandom(); !isEmptyInstance(ri) && ri.IsTemporary() != instance.IsTemporary() {
+		sink.Send(&polerpc.ServerResponse{
 			Code: -1,
 			Msg:  "A service can only be a persistent or non-persistent instance",
 		})
@@ -96,7 +97,7 @@ func (sm *ServiceManager) createServiceIfAbsent(namespaceId, serviceName, groupN
 				Clusters: make(map[string]*Cluster),
 			}
 
-			sm.core.storageOperator.SaveService(service, func(err error, s *Service) {
+			sm.core.storageOperator.SaveService(context.Background(), service, func(err error, s *Service) {
 				sm.services[namespaceId][serviceName] = service
 			})
 		}
@@ -121,23 +122,23 @@ func (sm *ServiceManager) SelectInstances(query QueryInstance) []Instance {
 	return nil
 }
 
-func (sm *ServiceManager) storeInstanceInfo(sink pole_rpc.RpcServerContext, cluster *Cluster, instance Instance,
+func (sm *ServiceManager) storeInstanceInfo(sink polerpc.RpcServerContext, cluster *Cluster, instance Instance,
 	metadata InstanceMetadata) {
-	sm.core.storageOperator.SaveInstance(instance, func(err error, instance Instance) {
+	sm.core.storageOperator.SaveInstance(context.Background(), &instance, func(err error, instance *Instance) {
 		if err != nil {
-			sink.Send(&pole_rpc.ServerResponse{
+			sink.Send(&polerpc.ServerResponse{
 				Code: 0,
 				Msg:  err.Error(),
 			})
 			return
 		}
-		cluster.AddInstance(instance, metadata)
+		cluster.AddInstance(*instance, metadata)
 
 		if instance.HCType == HealthCheckByHeartbeat {
-			sm.lessHolder.GrantLess(instance)
+			sm.lessHolder.GrantLess(*instance)
 		}
 
-		sink.Send(&pole_rpc.ServerResponse{
+		sink.Send(&polerpc.ServerResponse{
 			Code: 0,
 			Msg:  "success",
 		})

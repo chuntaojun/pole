@@ -67,35 +67,35 @@ func (rk *RaftKvStorage) RegisterHook(t HookType, h KvHook) {
 }
 
 func (rk *RaftKvStorage) Read(ctx *common.ContextPole, key []byte) ([]byte, error) {
-
+	return nil, nil
 }
 
 func (rk *RaftKvStorage) ReadBatch(ctx *common.ContextPole, keys [][]byte) ([][]byte, error) {
-
+	return nil, nil
 }
 
 func (rk *RaftKvStorage) Write(ctx *common.ContextPole, key []byte, value []byte) error {
-
+	return nil
 }
 
 func (rk *RaftKvStorage) WriteBatch(ctx *common.ContextPole, keys [][]byte, values [][]byte) error {
-
+	return nil
 }
 
 func (rk *RaftKvStorage) Delete(ctx *common.ContextPole, key []byte) error {
-
+	return nil
 }
 
 func (rk *RaftKvStorage) DeleteBatch(ctx *common.ContextPole, keys [][]byte) error {
-
+	return nil
 }
 
 func (rk *RaftKvStorage) Size() int64 {
-
+	return 1
 }
 
 func (rk *RaftKvStorage) Destroy() error {
-
+	return nil
 }
 
 // 处理读请求

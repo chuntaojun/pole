@@ -26,7 +26,6 @@ func (tmStorage *testMemoryDiscoveryStorage) SaveService(service *Service, call 
 
 func (tmStorage *testMemoryDiscoveryStorage) BatchUpdateService(services []*Service,
 	call func(err error, services []*Service)) {
-
 }
 
 func (tmStorage *testMemoryDiscoveryStorage) RemoveService(service *Service, call func(err error, service *Service)) {

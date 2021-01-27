@@ -5,11 +5,13 @@
 package notify
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+	polerpc "github.com/pole-group/pole-rpc"
 
 	"github.com/pole-group/pole/common"
 	"github.com/pole-group/pole/utils"
@@ -79,7 +81,7 @@ func InitWatcherCenter() {
 func (w *WatcherCenter) start() {
 	ctx := common.NewCtxPole()
 	ctx.Write(utils.TraceIDKey, "watcher-file-center")
-	utils.Go(ctx, func(ctx *common.ContextPole) {
+	polerpc.Go(ctx, func(ctx context.Context) {
 		for {
 			select {
 			case ev := <-w.watch.Events:
