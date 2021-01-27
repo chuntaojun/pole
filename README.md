@@ -1,8 +1,6 @@
 # Pole
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/pole-group/pole)](https://goreportcard.
-com/report/github.com/pole-group/pole)
-
+![Go Report Card](https://goreportcard.com/badge/github.com/pole-group/pole)
 ### description
 
 The Golang version of [alibaba/nacos](https://github.com/alibaba/nacos), and carried out other detailed designs
