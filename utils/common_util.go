@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"fmt"
 	"hash/crc64"
 	"strconv"
@@ -122,19 +121,6 @@ func RequireTrue(expression bool, format string, args ...interface{}) {
 	}
 }
 
-func RequireFalse(expression bool, format string, args ...interface{}) {
-	if expression {
-		panic(errors.Errorf(format, args))
-	}
-}
-
-func StringFormat(format string, args ...interface{}) string {
-	buf := bytes.NewBuffer([]byte{})
-	_, err := fmt.Fprintf(buf, format, args)
-	CheckErr(err)
-	return string(buf.Bytes())
-}
-
 var TimeHolder atomic.Value
 
 func init()  {
@@ -144,8 +130,34 @@ func init()  {
 		for {
 			select {
 			case <-ticker.C:
-				TimeHolder.Store(time.Now().Unix())
+				TimeHolder.Store(time.Now().Unix() * 1000)
 			}
 		}
 	}()
+}
+
+func GetCurrentTimeMs() int64 {
+	return TimeHolder.Load().(int64)
+}
+
+func Join(elems []interface{}, sep string) string {
+	switch len(elems) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf("%s", elems[0])
+	}
+	n := len(sep) * (len(elems) - 1)
+	for i := 0; i < len(elems); i++ {
+		n += len(fmt.Sprintf("%s", elems[i]))
+	}
+
+	var b strings.Builder
+	b.Grow(n)
+	b.WriteString(fmt.Sprintf("%s", elems[0]))
+	for _, s := range elems[1:] {
+		b.WriteString(sep)
+		b.WriteString(fmt.Sprintf("%s", s))
+	}
+	return b.String()
 }

@@ -25,7 +25,6 @@ func Test_KRandomMember(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		slice[i] = &Member{
 			Ip:     strconv.FormatInt(int64(i), 10) + "." + strconv.FormatInt(int64(i), 10) + "." + strconv.FormatInt(int64(i), 10) + "." + strconv.FormatInt(int64(i), 10),
-			Port:   8080,
 			Status: i,
 		}
 	}

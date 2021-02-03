@@ -35,7 +35,7 @@ func Test_RdsQuery(t *testing.T) {
 		return u
 	})
 	
-	rds, _ := CreateRds(&sys.Properties{
+	rds, _ := CreateRds(&sys.PoleConfig{
 		BaseDir: filepath.Join(utils.GetStringFromEnv("HOME"), "conf_rds"),
 	}, func(db *sql.DB) {
 	

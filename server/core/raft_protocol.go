@@ -108,10 +108,11 @@ func (server *raftServer) init() error {
 	dataDir := filepath.Join(sys.GetEnvHolder().DataPath, "protocol", "raft", name)
 
 	nhc := config.NodeHostConfig{
-		WALDir:            dataDir,
-		NodeHostDir:       dataDir,
-		RTTMillisecond:    200,
-		RaftAddress:       fmt.Sprintf("%s:%d", server.protocol.serverMgn.GetSelf().GetIp(), server.protocol.serverMgn.GetSelf().GetPort()),
+		WALDir:         dataDir,
+		NodeHostDir:    dataDir,
+		RTTMillisecond: 200,
+		RaftAddress: fmt.Sprintf("%s:%d", server.protocol.serverMgn.GetSelf().GetIp(),
+			server.protocol.serverMgn.GetSelf().GetExtensionPort(cluster.CPPort)),
 		RaftEventListener: server,
 	}
 

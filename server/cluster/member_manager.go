@@ -29,46 +29,33 @@ const (
 	Impeach
 )
 
-const (
-	PoleHttpPort      string = "httpPort"
-	PoleDiscoveryPort string = "discoveryPort"
-	PoleConfigPort    string = "configPort"
-	PoleRaftPort      string = "raftPort"
-	PoleDistroPort    string = "distroPort"
-)
-
 type Member struct {
 	lock           sync.Locker
-	MemberID       uint64            `json:"memberId"`
-	Identifier     string            `json:"omitempty"`
-	Ip             string            `json:"ip"`
-	Port           int32             `json:"port"`
-	ExtensionPorts map[string]int32  `json:"extensionPorts"`
-	MetaData       map[string]string `json:"metadata"`
+	MemberID       uint64                 `json:"memberId"`
+	Identifier     string                 `json:"omitempty"`
+	Ip             string                 `json:"ip"`
+	ExtensionPorts map[ProtocolPort]int32 `json:"extensionPorts"`
+	MetaData       map[string]string      `json:"metadata"`
 	Status         int
 	accessFailCnt  int32
 }
 
 func (m *Member) GetIdentifier() string {
 	if m.Identifier == "" {
-		m.Identifier = fmt.Sprintf("%s:%d", m.Ip, m.Port)
+		m.Identifier = fmt.Sprintf("%s:%d", m.Ip, m.GetExtensionPort(ServerPort))
 	}
 	return m.Identifier
 }
 
 func (m *Member) GetAddr() string {
-	return fmt.Sprintf("%s:%d", m.Ip, m.Port)
+	return fmt.Sprintf("%s:%d", m.Ip, m.GetExtensionPort(ServerPort))
 }
 
 func (m *Member) GetIp() string {
 	return m.Ip
 }
 
-func (m *Member) GetPort() int32 {
-	return m.Port
-}
-
-func (m *Member) GetExtensionPort(key string) int32 {
+func (m *Member) GetExtensionPort(key ProtocolPort) int32 {
 	return m.ExtensionPorts[key]
 }
 
@@ -80,136 +67,156 @@ func (m *Member) GetMetaDataCopy() map[string]string {
 	return c
 }
 
+func (m *Member) RemoveMetaData(key string) {
+	defer m.lock.Unlock()
+	m.lock.Lock()
+	delete(m.MetaData, key)
+}
+
 func (m *Member) UpdateMetaData(key, value string) {
 	defer m.lock.Unlock()
 	m.lock.Lock()
-
 	m.MetaData[key] = value
 }
 
 func (m *Member) UpdateAllMetaData(newMetadata map[string]string) {
 	defer m.lock.Unlock()
 	m.lock.Lock()
-
 	m.MetaData = newMetadata
 }
 
 type ServerClusterManager struct {
-	self       string
-	ctx        *common.ContextPole
-	lock       sync.RWMutex
-	memberList map[string]*Member
-	lookUp     MemberLookup
-	config     *sys.Properties
+	self         string
+	ctx          *common.ContextPole
+	lock         sync.RWMutex
+	memberList   *polerpc.ConcurrentMap
+	lookUp       MemberLookup
+	reportFuture polerpc.Future
 }
 
-func (s *ServerClusterManager) Init(config *sys.Properties) {
+func NewServerClusterManager() *ServerClusterManager {
+	mgn := &ServerClusterManager{
+		ctx:        nil,
+		lock:       sync.RWMutex{},
+		memberList: &polerpc.ConcurrentMap{},
+	}
 
+	mgn.init()
+	return mgn
+}
+
+func (s *ServerClusterManager) init() {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Printf("server-cluster-manager init has error : %s\n", err)
+			sys.CoreLogger.Error("server-cluster-manager init has error : %s", err)
 			panic(err)
 		}
 	}()
 
-	s.self = utils.FindSelfIP()
+	if err := notify.RegisterPublisher(&MemberChangeEvent{}, 64); err != nil {
+		panic(err)
+	}
 
-	utils.Runnable(func() error {
-		return notify.RegisterPublisher(&MemberChangeEvent{}, 64)
-	})
+	s.self = fmt.Sprintf("%s:%d", utils.FindSelfIP(), sys.GetEnvHolder().ServerPort)
+	selfMember := SingParse(s.self)
+	s.memberList.Put(selfMember.GetIdentifier(), selfMember)
 
-	s.lookUp = utils.Supplier(func() (i interface{}, err error) {
-		return CreateMemberLookup(s.ctx, config, s.MemberChange)
-	}).(MemberLookup)
+	lookUp, err := CreateMemberLookup(s.ctx, s.MemberChange)
+	if err != nil {
+		panic(err)
+	}
+	s.lookUp = lookUp
 }
 
-// Register the handler for each request, just use for console
-func (s *ServerClusterManager) RegisterHttpHandler(group *gin.RouterGroup) []gin.IRoutes {
-
-	var routes []gin.IRoutes
-
-	routes = append(routes,
-		group.GET(constants.MemberInfoReportPattern, func(c *gin.Context) {
-			remoteMember := &Member{}
-			err := c.BindJSON(remoteMember)
+// RegisterHttpHandler 注册用于终端控制台的Http请求处理器
+func (s *ServerClusterManager) RegisterHttpHandler(httpServer *gin.Engine) {
+	httpServer.GET(constants.MemberInfoReportPattern, func(c *gin.Context) {
+		remoteMember := &Member{}
+		err := c.BindJSON(remoteMember)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, pojo.HttpResult{
+				Code: http.StatusBadRequest,
+				Msg:  err.Error(),
+			})
+		} else {
+			originMember := s.memberList.Get(remoteMember.GetIdentifier()).(*Member)
+			originMember.UpdateAllMetaData(remoteMember.MetaData)
+			c.JSON(http.StatusOK, pojo.HttpResult{
+				Code: http.StatusOK,
+				Msg:  "success",
+			})
+		}
+	})
+	httpServer.GET(constants.MemberListPattern, func(c *gin.Context) {
+		c.JSON(http.StatusOK, pojo.HttpResult{
+			Code: http.StatusOK,
+			Body: s.GetMemberList(),
+			Msg:  "success",
+		})
+	})
+	httpServer.GET(constants.MemberLookupNowPattern, func(c *gin.Context) {
+		c.JSON(http.StatusOK, pojo.HttpResult{
+			Code: http.StatusOK,
+			Body: s.lookUp.Name(),
+			Msg:  "success",
+		})
+	})
+	httpServer.POST(constants.MemberLookupSwitchPattern, func(c *gin.Context) {
+		params := make(map[string]string)
+		err := c.BindJSON(&params)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, pojo.HttpResult{
+				Code: http.StatusBadRequest,
+				Msg:  err.Error(),
+			})
+		} else {
+			val := params["lookType"]
+			newLookup, err := SwitchMemberLookupAndCloseOld(s.ctx, val, s.lookUp, s.MemberChange)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, pojo.HttpResult{
-					Code: http.StatusBadRequest,
+				c.JSON(http.StatusInternalServerError, pojo.HttpResult{
+					Code: http.StatusInternalServerError,
 					Msg:  err.Error(),
 				})
 			} else {
-				originMember := s.memberList[remoteMember.GetIdentifier()]
-				originMember.UpdateAllMetaData(remoteMember.MetaData)
+				s.lookUp = newLookup
 				c.JSON(http.StatusOK, pojo.HttpResult{
 					Code: http.StatusOK,
 					Msg:  "success",
 				})
 			}
-		}),
-		group.GET(constants.MemberListPattern, func(c *gin.Context) {
-			c.JSON(http.StatusOK, pojo.HttpResult{
-				Code: http.StatusOK,
-				Body: s.GetMemberList(),
-				Msg:  "success",
-			})
-		}),
-		group.GET(constants.MemberLookupNowPattern, func(c *gin.Context) {
-			c.JSON(http.StatusOK, pojo.HttpResult{
-				Code: http.StatusOK,
-				Body: s.lookUp.Name(),
-				Msg:  "success",
-			})
-		}),
-		group.POST(constants.MemberLookupSwitchPattern, func(c *gin.Context) {
-			params := make(map[string]string)
-			err := c.BindJSON(&params)
-			if err != nil {
-				c.JSON(http.StatusBadRequest, pojo.HttpResult{
-					Code: http.StatusBadRequest,
-					Msg:  err.Error(),
-				})
-			} else {
-				val := params["lookType"]
-				newLookup, err := SwitchMemberLookupAndCloseOld(s.ctx, val, s.config, s.lookUp, s.MemberChange)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, pojo.HttpResult{
-						Code: http.StatusInternalServerError,
-						Msg:  err.Error(),
-					})
-				} else {
-					s.lookUp = newLookup
-					c.JSON(http.StatusOK, pojo.HttpResult{
-						Code: http.StatusOK,
-						Msg:  "success",
-					})
-				}
-			}
-		}),
-	)
-
-	return routes
+		}
+	})
 }
 
 func (s *ServerClusterManager) GetSelf() *Member {
-	return nil
+	return s.memberList.Get(s.self).(*Member)
 }
 
 func (s *ServerClusterManager) FindMember(ip string, port int) (*Member, bool) {
-	defer s.lock.RUnlock()
-	s.lock.RLock()
-
-	key := ip + fmt.Sprintf("%d", port)
-	m, exist := s.memberList[key]
-
-	return m, exist
+	m := s.memberList.Get(fmt.Sprintf("%s:%d", ip, port)).(*Member)
+	return m, m != nil
 }
 
 func (s *ServerClusterManager) GetMemberList() []*Member {
-	list := make([]*Member, len(s.memberList))
-	for _, v := range s.memberList {
-		list = append(list, v)
-	}
+	list := make([]*Member, s.memberList.Size())
+	i := 0
+	s.memberList.ForEach(func(k, v interface{}) {
+		list[i] = v.(*Member)
+		i++
+	})
 	return list
+}
+
+func (s *ServerClusterManager) UpdateMember(newMember *Member) {
+	defer s.lock.Unlock()
+	s.lock.Lock()
+	key := newMember.GetIdentifier()
+	oldMember := s.memberList.Get(key)
+	if oldMember == nil {
+		return
+	}
+	s.memberList.Put(newMember.GetIdentifier(), newMember)
+	s.notifySubscriber()
 }
 
 func (s *ServerClusterManager) MemberChange(newMembers []*Member) {
@@ -217,41 +224,40 @@ func (s *ServerClusterManager) MemberChange(newMembers []*Member) {
 	s.lock.Lock()
 
 	// 如果节点数都不一样，则一定发生了节点的变化
-	hasChanged := len(newMembers) == len(s.memberList)
-
-	newMemberList := make(map[string]*Member)
+	hasChanged := len(newMembers) == s.memberList.Size()
+	newMemberList := &polerpc.ConcurrentMap{}
 
 	for _, member := range newMembers {
 		address := member.GetIdentifier()
 
-		if _, exist := s.memberList[address]; !exist {
+		if s.memberList.Get(address) == nil {
 			hasChanged = true
 		}
 
-		newMemberList[address] = member
+		newMemberList.Put(address, member)
 	}
 
 	s.memberList = newMemberList
 
 	if hasChanged {
-		var list []*Member
-		for _, m := range s.memberList {
-			list = append(list, m)
-		}
-
-		_, err := notify.PublishEvent(&MemberChangeEvent{
-			newMembers: list,
-		})
-
-		if err != nil {
-			sys.CoreLogger.Info(common.NewCtxPole(), "notify member change failed : %s", err)
-		}
+		s.notifySubscriber()
 	}
 
 }
 
+func (s *ServerClusterManager) notifySubscriber() {
+	list := s.GetMemberList()
+	_, err := notify.PublishEvent(&MemberChangeEvent{
+		newMembers: list,
+	})
+
+	if err != nil {
+		sys.CoreLogger.Info("notify member change failed : %s", err)
+	}
+}
+
 func (s *ServerClusterManager) openReportSelfInfoToOtherWork() {
-	polerpc.DoTimerSchedule(common.NewCtxPole(), func() {
+	s.reportFuture = polerpc.DoTimerSchedule(func() {
 
 		waitReport := KRandomMember(3, s.GetMemberList(), func(m *Member) bool {
 			return m.Status == Health
@@ -260,20 +266,20 @@ func (s *ServerClusterManager) openReportSelfInfoToOtherWork() {
 		for _, m := range waitReport {
 			bytes, err := json.Marshal(*m)
 			if err != nil {
-				fmt.Printf("member info marshal to json has error : %s\n", err)
+				sys.CoreLogger.Error("member info marshal to json has error : %s\n", err)
 				continue
 			}
-
-			url := utils.BuildHttpUrl(utils.BuildServerAddr(m.Ip, m.Port), constants.MemberInfoReportPattern)
+			url := utils.BuildHttpUrl(utils.BuildServerAddr(m.Ip, m.GetExtensionPort(ServerPort)),
+				constants.MemberInfoReportPattern)
 			resp, err := http.Post(url, "application/json;charset=utf-8", strings.NewReader(string(bytes)))
 			if err != nil {
-				fmt.Printf("report info to target member has error : %s\n", err)
-				OnFail(m, err)
+				sys.CoreLogger.Error("report info to target member has error : %s\n", err)
+				OnFail(s, m, err)
 			} else {
 				if http.StatusOK == resp.StatusCode {
-					OnSuccess(m)
+					OnSuccess(s, m)
 				} else {
-					OnFail(m, nil)
+					OnFail(s, m, nil)
 				}
 			}
 		}
@@ -292,5 +298,5 @@ func (m *MemberChangeEvent) Name() string {
 }
 
 func (m *MemberChangeEvent) Sequence() int64 {
-	return time.Now().Unix()
+	return utils.GetCurrentTimeMs()
 }

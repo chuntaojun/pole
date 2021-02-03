@@ -4,35 +4,16 @@
 
 package sys
 
-import "github.com/pole-group/pole/utils"
-
-var (
-	RaftKVLogger utils.Logger = utils.NewTestLogger(utils.LoggerCfg{
-		Level:      utils.LogLevelDebug,
-		Path:       "",
-		MaxSize:    0,
-		MaxBackups: 0,
-		MaxAge:     0,
-		Compress:   false,
-	})
-
-	CoreLogger utils.Logger = utils.NewTestLogger(utils.LoggerCfg{
-		Level:      utils.LogLevelDebug,
-		Path:       "",
-		MaxSize:    0,
-		MaxBackups: 0,
-		MaxAge:     0,
-		Compress:   false,
-	})
-
-	LookupLogger utils.Logger = utils.NewTestLogger(utils.LoggerCfg{
-		Level:      utils.LogLevelDebug,
-		Path:       "",
-		MaxSize:    0,
-		MaxBackups: 0,
-		MaxAge:     0,
-		Compress:   false,
-	})
+import (
+	polerpc "github.com/pole-group/pole-rpc"
 )
 
+var (
+	RaftKVLogger = polerpc.NewTestLogger("storage-raft-kv")
 
+	CoreLogger = polerpc.NewTestLogger("pole-core")
+
+	LookupLogger = polerpc.NewTestLogger("pole-cluster-lookup")
+
+	DiscoveryLessLogger = polerpc.NewTestLogger("pole-discovery-less")
+)

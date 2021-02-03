@@ -110,7 +110,7 @@ func (rk *RaftKvStorage) OnWrite(req *cy.Write) cy.Response {
 
 // 处理错误
 func (rk *RaftKvStorage) OnError(err error) {
-	sys.RaftKVLogger.Error(common.EmptyContext, "occur error in raft state machine : %s", err)
+	sys.RaftKVLogger.Error("occur error in raft state machine : %s", err)
 }
 
 // 分组详细

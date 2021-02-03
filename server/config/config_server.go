@@ -5,12 +5,11 @@
 package config
 
 import (
-	"context"
-
 	"github.com/gin-gonic/gin"
-	pole_rpc "github.com/pole-group/pole-rpc"
+	polerpc "github.com/pole-group/pole-rpc"
 
 	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/server/cluster"
 	"github.com/pole-group/pole/server/sys"
 )
 
@@ -19,10 +18,10 @@ type ConfigServer struct {
 	api     *ConfAPI
 }
 
-func NewConfig(cfg sys.Properties, ctx context.Context, httpServer *gin.Engine) *ConfigServer {
+func NewConfig(ctx *common.ContextPole, mgn *cluster.ServerClusterManager, httpServer *gin.Engine) *ConfigServer {
 	return &ConfigServer{
-		console: newConfigConsole(cfg, httpServer),
-		api:     newConfAPI(cfg, ctx),
+		console: newConfigConsole(ctx.NewSubCtx(), mgn, httpServer),
+		api:     newConfAPI(ctx.NewSubCtx(), mgn),
 	}
 }
 
@@ -41,12 +40,16 @@ func (c *ConfigServer) Shutdown() {
 }
 
 type ConfConsole struct {
+	ctx        *common.ContextPole
 	httpServer *gin.Engine
+	clusterMgn *cluster.ServerClusterManager
 }
 
-func newConfigConsole(cfg sys.Properties, httpServer *gin.Engine) *ConfConsole {
+func newConfigConsole(ctx *common.ContextPole, clusterMgn *cluster.ServerClusterManager, httpServer *gin.Engine) *ConfConsole {
 	return &ConfConsole{
+		ctx:        ctx,
 		httpServer: httpServer,
+		clusterMgn: clusterMgn,
 	}
 }
 
@@ -54,26 +57,27 @@ func (cc *ConfConsole) Init(ctx *common.ContextPole) {
 }
 
 func (cc *ConfConsole) Shutdown() {
-
+	cc.ctx.Cancel()
 }
 
 type ConfAPI struct {
-	server pole_rpc.TransportServer
-	ctx    context.Context
+	ctx        *common.ContextPole
+	clusterMgn *cluster.ServerClusterManager
+	server     polerpc.TransportServer
 }
 
-func newConfAPI(cfg sys.Properties, ctx context.Context) *ConfAPI {
-	subCtx, _ := context.WithCancel(ctx)
+func newConfAPI(ctx *common.ContextPole, clusterMgn *cluster.ServerClusterManager) *ConfAPI {
 	return &ConfAPI{
-		server: pole_rpc.NewRSocketServer(subCtx, "CONF-CONFIG", int32(cfg.ConfigPort), cfg.OpenSSL),
-		ctx:    subCtx,
+		clusterMgn: clusterMgn,
+		ctx:        ctx,
 	}
 }
 
 func (ca *ConfAPI) Init(ctx *common.ContextPole) {
-
+	ca.server = polerpc.NewRSocketServer(ctx, "CONF-CONFIG", ca.clusterMgn.GetSelf().GetExtensionPort(cluster.ConfigPort),
+		sys.GetEnvHolder().OpenSSL)
 }
 
 func (ca *ConfAPI) Shutdown() {
-
+	ca.ctx.Cancel()
 }

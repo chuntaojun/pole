@@ -7,11 +7,38 @@ package discovery
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
+
+	polerpc "github.com/pole-group/pole-rpc"
 
 	"github.com/pole-group/pole/pojo"
 	"github.com/pole-group/pole/utils"
 )
+
+const (
+	ServiceLink  = "@@"
+	ClusterLink  = "$$"
+	InstanceLink = "=>"
+)
+
+func ParseServiceName(name, group string) string {
+	return fmt.Sprintf("%s"+ServiceLink+"%s", name, group)
+}
+
+func ParseClusterName(serviceName, clusterName string) string {
+	return fmt.Sprintf("%s"+ClusterLink+"%s", serviceName, clusterName)
+}
+
+func ParseServiceClusterList(name string) string {
+	return name + "_cluster_list"
+}
+
+func ParseServiceClusterInstanceList(name string) string {
+	return name + "_instance_list"
+}
+
+func ParseInstanceKey(serviceName, clusterName, host string, port int32) string {
+	return fmt.Sprintf("%s"+InstanceLink+"%s:%d", ParseClusterName(serviceName, clusterName), host, port)
+}
 
 type InstanceHealthCheckType int8
 
@@ -25,11 +52,40 @@ type Service struct {
 	labelLock     sync.RWMutex
 	name          string
 	originService *pojo.Service
-	Clusters      map[string]*Cluster
+	Clusters      polerpc.ConcurrentMap // 仅仅是为了读写分离
 }
 
-func (s *Service) FindInstance(clusterName, key string) (Instance, error) {
-	return s.Clusters[clusterName].FindInstance(key)
+func (s *Service) addInstance(instance Instance, metadata InstanceMetadata) (bool, error) {
+	cluster := s.Clusters.Get(instance.originInstance.ClusterName).(*Cluster)
+	cluster.repository.Put(instance.key, instance)
+	return true, nil
+}
+
+func (s *Service) removeInstance(instance Instance) (bool, error) {
+	cluster := s.Clusters.Get(instance.originInstance.ClusterName).(*Cluster)
+	cluster.repository.Remove(instance.key)
+	return true, nil
+}
+
+func (s *Service) findAllInstance() ([]Instance, error) {
+	total := 0
+	s.Clusters.ForEach(func(k, v interface{}) {
+		total += v.(*Cluster).repository.Size()
+	})
+	allInstances := make([]Instance, total, total)
+	index := 0
+	s.Clusters.ForEach(func(k, v interface{}) {
+		cluster := v.(*Cluster)
+		cluster.repository.ForEach(func(k, v interface{}) {
+			allInstances[index] = v.(Instance)
+			index++
+		})
+	})
+	return allInstances, nil
+}
+
+func (s *Service) findOneInstance(clusterName, key string) (Instance, error) {
+	return s.Clusters.Get(clusterName).(*Cluster).FindInstance(key)
 }
 
 type ClusterMetadata struct {
@@ -37,65 +93,80 @@ type ClusterMetadata struct {
 	metadata    map[string]string
 }
 
+type CInstanceType int8
+
+const (
+	CInstanceUnKnow CInstanceType = iota
+	CInstancePersist
+	CInstanceTemporary
+)
+
 type Cluster struct {
 	lock          sync.RWMutex
 	name          string
 	originCluster *pojo.Cluster
-	Instances     map[string]Instance
-	metadata      atomic.Value
+	instanceType  CInstanceType
+	repository    polerpc.ConcurrentMap
 }
 
 var emptyInstance Instance = Instance{
-	key:       "",
+	key: "",
 	originInstance: &pojo.Instance{
-		Ip:              "",
-		Port:            -1,
+		Ip:   "",
+		Port: -1,
 	},
 	health: false,
 }
 
+func (c *Cluster) GetCInstanceType() CInstanceType {
+	return c.instanceType
+}
+
 func (c *Cluster) FindInstance(key string) (Instance, error) {
-	if instance, isOk := c.Instances[key]; isOk {
-		return instance, nil
+	instance := c.repository.Get(key)
+	if instance != nil {
+		return instance.(Instance), nil
 	}
+	//TODO 需要直接读取KV的方式再一次读取数据，判断是否存在该实例信息
 	return emptyInstance, fmt.Errorf("can't find instance by : %s", key)
 }
 
-func (c *Cluster) AddInstance(instance Instance, metadata InstanceMetadata) {
-	defer c.lock.Unlock()
-	c.lock.Lock()
-	c.Instances[instance.GetKey()] = instance
+func (c *Cluster) addInstance(instance Instance, metadata InstanceMetadata) (bool, error) {
+	if c.instanceType == CInstanceUnKnow {
+		c.lock.Lock()
+		if c.instanceType == CInstanceUnKnow {
+			c.instanceType = utils.IF(instance.IsTemporary(), CInstanceTemporary, CInstancePersist).(CInstanceType)
+		} else {
+			if c.instanceType != utils.IF(instance.IsTemporary(), CInstanceTemporary,
+				CInstancePersist).(CInstanceType) {
+				c.lock.Unlock()
+				return false, fmt.Errorf("A service can only be a persistent or non-persistent instance")
+			}
+		}
+		c.lock.Unlock()
+	}
+	c.repository.Put(instance.GetKey(), instance)
+	return true, nil
 }
 
 func (c *Cluster) RemoveInstance(instance Instance) {
-	defer c.lock.Unlock()
-	c.lock.Lock()
-	delete(c.Instances, instance.GetKey())
+	c.repository.Remove(instance.GetKey())
 }
 
 func (c *Cluster) Seek(consumer func(instance Instance)) {
-	defer c.lock.RUnlock()
-	c.lock.RLock()
-	for _, v := range c.Instances {
-		consumer(v)
-	}
-}
-
-func (c *Cluster) FindRandom() Instance {
-	defer c.lock.RUnlock()
-	c.lock.RLock()
-	for _, v := range c.Instances {
-		return v
-	}
-	return emptyInstance
+	c.repository.ForEach(func(k, v interface{}) {
+		consumer(v.(Instance))
+	})
 }
 
 func (c *Cluster) UpdateMetadata(metadata map[string]string) {
-	c.metadata.Store(metadata)
+	defer c.lock.Unlock()
+	c.lock.Lock()
+	c.originCluster.Metadata.Metadata = metadata
 }
 
 func (c *Cluster) GetMetadata() map[string]string {
-	return c.metadata.Load().(map[string]string)
+	return c.originCluster.Metadata.Metadata
 }
 
 type InstanceMetadata struct {

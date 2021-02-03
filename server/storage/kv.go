@@ -12,6 +12,13 @@ import (
 	"github.com/pole-group/pole/utils"
 )
 
+type DataOp int32
+
+const (
+	Write DataOp = iota
+	Delete
+)
+
 type HookType int32
 
 type KvHook func(key string, value []byte)

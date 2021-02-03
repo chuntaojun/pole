@@ -8,6 +8,7 @@ import (
 	polerpc "github.com/pole-group/pole-rpc"
 
 	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/server/sys"
 	"github.com/pole-group/pole/utils"
 )
 
@@ -30,7 +31,11 @@ func NewLessor(ctx *common.ContextPole) *Lessor {
 		lessRep:  make(map[string]time.Duration),
 		rwLock:   sync.RWMutex{},
 		watchers: make([]ExpireLessWatcher, 0, 0),
-		timer:    polerpc.NewTimeWheel(time.Duration(1)*time.Second, 15),
+		timer: polerpc.NewTimeWheel(func(opts *polerpc.Options) {
+			opts.SlotNum = 15
+			opts.Interval = time.Duration(1) * time.Second
+			opts.MaxDealTask = 65535
+		}),
 	}
 
 	lh.start()
@@ -54,9 +59,9 @@ func (lh *Lessor) GrantLess(instance Instance) {
 	key := instance.GetKey()
 	defer lh.lessLock.Unlock()
 	lh.lessLock.Lock()
-	expire := time.Duration(15+utils.TimeHolder.Load().(int64)) * time.Second
+	expire := time.Duration(15+utils.GetCurrentTimeMs()) * time.Second
 	lh.lessRep[key] = expire
-	lh.timer.AddTask(&less{
+	lh.timer.DelayExec(&less{
 		key: key,
 		lh:  lh,
 	}, expire)
@@ -100,11 +105,16 @@ type less struct {
 func (l *less) Run() {
 	defer l.lh.rwLock.RUnlock()
 	l.lh.rwLock.RLock()
-	v := l.lh.lessRep[l.key]
+	v, ok := l.lh.lessRep[l.key]
+	if !ok {
+		sys.DiscoveryLessLogger.Warn("instance : %s less info not found, "+
+			"so canceled this check task", l.key)
+		return
+	}
 	//为了避免由于调用时间陷入系统调用所带来的额外开销，这里使用一个定时任务去定期的查询时间信息
-	if int64(v) <= utils.TimeHolder.Load().(int64) {
+	if int64(v) <= utils.GetCurrentTimeMs() {
 		l.lh.expireKeys <- []string{l.key}
 	} else {
-		l.lh.timer.AddTask(l, v)
+		l.lh.timer.DelayExec(l, v)
 	}
 }

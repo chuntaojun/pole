@@ -32,16 +32,18 @@ func (fc *FilterChain) Do(ctx common.ContextPole, cfg interface{}) error {
 	return nil
 }
 
-func (fc *FilterChain) Shutdown()  {
+func (fc *FilterChain) Shutdown() {
 
 }
 
-
 type ConfigFilter interface {
+	// doFilter
 	doFilter(ctx common.ContextPole, cfg *ConfigFile)
-
+	// doBetaFilter
 	doBetaFilter(ctx common.ContextPole, cfg *ConfigBetaFile)
-
+	// doHistoryFilter
+	doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile)
+	// doOnFinish
 	doOnFinish(ctx common.ContextPole, cfg ConfigMetadata)
 }
 
@@ -54,6 +56,10 @@ func (cf *CapacityConfigFilter) doFilter(ctx common.ContextPole, cfg *ConfigFile
 }
 
 func (cf *CapacityConfigFilter) doBetaFilter(ctx common.ContextPole, cfg *ConfigBetaFile) {
+
+}
+
+func (cf *CapacityConfigFilter) doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile) {
 
 }
 
@@ -73,10 +79,15 @@ func (af *AuditConfigFilter) doBetaFilter(ctx common.ContextPole, cfg *ConfigBet
 
 }
 
+func (af *AuditConfigFilter) doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile) {
+
+}
+
 func (af *AuditConfigFilter) doOnFinish(ctx common.ContextPole, cfg ConfigMetadata) {
 
 }
 
+// 配置加密操作
 type EncryptConfigFilter struct {
 }
 
@@ -85,6 +96,10 @@ func (ef *EncryptConfigFilter) doFilter(ctx common.ContextPole, cfg *ConfigFile)
 }
 
 func (ef *EncryptConfigFilter) doBetaFilter(ctx common.ContextPole, cfg *ConfigBetaFile) {
+
+}
+
+func (ef *EncryptConfigFilter) doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile) {
 
 }
 

@@ -79,7 +79,7 @@ type Rds interface {
 	Transaction(ctx context.Context, f func(db *sql.DB) error) error
 }
 
-func CreateRds(cfg *sys.Properties, initialize func(db *sql.DB)) (Rds, error) {
+func CreateRds(cfg *sys.PoleConfig, initialize func(db *sql.DB)) (Rds, error) {
 	if cfg.IsEmbedded {
 		utils.MkdirAllIfNotExist(cfg.GetDataPath(), os.ModePerm)
 		db, err := sql.Open("sqlite3", filepath.Join(cfg.GetDataPath(), "conf.db"))
@@ -89,17 +89,8 @@ func CreateRds(cfg *sys.Properties, initialize func(db *sql.DB)) (Rds, error) {
 		rds := &EmbeddedRDS{db: db}
 		rds.initDB(initialize)
 		return rds, nil
-	} else {
-		db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:%d)/%s", cfg.DbCfg.User, cfg.DbCfg.Password, cfg.DbCfg.DbHost,
-			cfg.DbCfg.DbPort,
-			cfg.DbCfg.Database))
-		if err != nil {
-			return nil, err
-		}
-		return &ExternalRDS{
-			db: db,
-		}, nil
 	}
+	return nil, fmt.Errorf("unsupport!")
 }
 
 type EmbeddedRDS struct {
@@ -184,30 +175,6 @@ func (r *EmbeddedRDS) ExecuteModify(ctx context.Context, reqs ModifyReqs) (err e
 }
 
 func (r *EmbeddedRDS) Transaction(ctx context.Context, f func(db *sql.DB) error) error {
-	return transaction(ctx, r.db, f)
-}
-
-type ExternalRDS struct {
-	db *sql.DB
-}
-
-func (r *ExternalRDS) DB() *sql.DB {
-	return r.db
-}
-
-func (r *ExternalRDS) initDB(f func(db *sql.DB)) {
-	f(r.db)
-}
-
-func (r *ExternalRDS) ExecuteQuery(ctx context.Context, query QueryRequest) (results []map[string]interface{}, err error) {
-	return nil, nil
-}
-
-func (r *ExternalRDS) ExecuteModify(ctx context.Context, reqs ModifyReqs) (err error) {
-	return nil
-}
-
-func (r *ExternalRDS) Transaction(ctx context.Context, f func(db *sql.DB) error) error {
 	return transaction(ctx, r.db, f)
 }
 

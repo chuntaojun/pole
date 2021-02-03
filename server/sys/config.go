@@ -26,18 +26,18 @@ func InitConf() {
 		panic(err)
 	}
 
-	p := &Properties{}
+	p := &PoleConfig{}
 	if err := yaml.Unmarshal(s, p); err != nil {
 		panic(err)
 	}
 	propertiesHolder.Store(p)
 }
 
-func GetEnvHolder() *Properties {
-	return propertiesHolder.Load().(*Properties)
+func GetEnvHolder() *PoleConfig {
+	return propertiesHolder.Load().(*PoleConfig)
 }
 
-type Properties struct {
+type PoleConfig struct {
 	BaseDir        string   `yaml:"baseDir"`
 	StandaloneMode bool     `yaml:"standaloneMode"`
 	ConfPath       string   `yaml:"confPath"`
@@ -51,14 +51,7 @@ type Properties struct {
 	ClusterCfg ClusterConfig `yaml:"clusterConfig"`
 
 	// Open port information
-
-	// User-level aware ports
-	HttpPort      int64 `yaml:"httpPort"`
-	DiscoveryPort int64 `yaml:"discoveryPort"`
-	ConfigPort    int64 `yaml:"configPort"`
-	// The internal port
-	DistroPort int64 `yaml:"distroPort"`
-	RaftPort   int64 `yaml:"raftPort"`
+	ServerPort int64 `yaml:"serverPort"`
 }
 
 type ClusterConfig struct {
@@ -78,7 +71,7 @@ type KubernetesLookupConfig struct {
 
 type AddressLookupConfig struct {
 	ServerAddr string `yaml:"addressServer"`
-	ServerPort int32 `yaml:"serverPort"`
+	ServerPort int32  `yaml:"serverPort"`
 	ServerPath string `yaml:"serverPath"`
 }
 
@@ -94,28 +87,28 @@ type DBConfig struct {
 	Database string `yaml:"database"`
 }
 
-func (c *Properties) IsStandaloneMode() bool {
+func (c *PoleConfig) IsStandaloneMode() bool {
 	return c.StandaloneMode
 }
 
-func (c *Properties) GetBaseDir() string {
+func (c *PoleConfig) GetBaseDir() string {
 	return c.BaseDir
 }
 
-func (c *Properties) GetConfPath() string {
+func (c *PoleConfig) GetConfPath() string {
 	if c.ConfPath == "" {
 		c.ConfPath = filepath.Join(c.BaseDir, "conf")
 	}
 	return c.ConfPath
 }
 
-func (c *Properties) GetDataPath() string {
+func (c *PoleConfig) GetDataPath() string {
 	if c.DataPath == "" {
 		c.DataPath = filepath.Join(c.BaseDir, "data")
 	}
 	return c.DataPath
 }
 
-func (c *Properties) GetClusterConfPath() string {
+func (c *PoleConfig) GetClusterConfPath() string {
 	return filepath.Join(c.GetConfPath(), "cluster.conf")
 }

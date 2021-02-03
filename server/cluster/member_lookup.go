@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	polerpc "github.com/pole-group/pole-rpc"
@@ -46,14 +45,14 @@ const (
 	typeForKubernetesMemberLookup    = "kubernetes"
 )
 
-func CreateMemberLookup(ctx context.Context, config *sys.Properties, observer func(newMembers []*Member)) (MemberLookup,
+func CreateMemberLookup(ctx context.Context, observer func(newMembers []*Member)) (MemberLookup,
 	error) {
 	var lookup MemberLookup
-	if config.IsStandaloneMode() {
+	if sys.GetEnvHolder().IsStandaloneMode() {
 		lookup = &standaloneMemberLookup{}
 	} else {
 		val := sys.GetEnvHolder().ClusterCfg.LookupCfg.MemberLookupType
-		l, err := createLookupByName(ctx, val, config)
+		l, err := createLookupByName(ctx, val, sys.GetEnvHolder())
 		if err != nil {
 			return nil, err
 		}
@@ -65,13 +64,13 @@ func CreateMemberLookup(ctx context.Context, config *sys.Properties, observer fu
 	return lookup, err
 }
 
-func SwitchMemberLookupAndCloseOld(ctx context.Context, name string, config *sys.Properties, oldLookup MemberLookup, observer func(newMembers []*Member)) (MemberLookup, error) {
-	if config.IsStandaloneMode() {
+func SwitchMemberLookupAndCloseOld(ctx context.Context, name string, oldLookup MemberLookup, observer func(newMembers []*Member)) (MemberLookup, error) {
+	if sys.GetEnvHolder().IsStandaloneMode() {
 		return nil, ErrorNotSupportMode
 	}
 	oldLookup.Shutdown()
 
-	newLookup, err := createLookupByName(ctx, name, config)
+	newLookup, err := createLookupByName(ctx, name, sys.GetEnvHolder())
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +80,7 @@ func SwitchMemberLookupAndCloseOld(ctx context.Context, name string, config *sys
 	return newLookup, err
 }
 
-func createLookupByName(ctx context.Context, name string, config *sys.Properties) (MemberLookup, error) {
+func createLookupByName(ctx context.Context, name string, config *sys.PoleConfig) (MemberLookup, error) {
 	var newLookup MemberLookup
 	switch name {
 	case typeForFileMemberLookup:
@@ -116,7 +115,7 @@ func createLookupByName(ctx context.Context, name string, config *sys.Properties
 
 type BaseMemberLookup struct {
 	ctx      context.Context
-	config   *sys.Properties
+	config   *sys.PoleConfig
 	observer func(newMembers []*Member)
 }
 
@@ -175,7 +174,7 @@ func (s *kubernetesMemberLookup) startListener() {
 			f := func(e watch.Event) {
 				defer func() {
 					if err := recover(); err != nil {
-						sys.LookupLogger.Error(cxt, "%#v", err)
+						sys.LookupLogger.Error("%#v", err)
 					}
 				}()
 
@@ -191,19 +190,14 @@ func (s *kubernetesMemberLookup) startListener() {
 
 				for _, address := range addresses {
 					memberHost := address.Hostname
-					var httpPort int32
-					extensionPorts := make(map[string]int32)
+					extensionPorts := make(map[ProtocolPort]int32)
 
 					for _, port := range ports {
-						if strings.Compare(port.Name, PoleHttpPort) == 0 {
-							httpPort = port.Port
-						}
-						extensionPorts[port.Name] = port.Port
+						extensionPorts[ProtocolPort(port.Name)] = port.Port
 					}
 
 					newMember := &Member{
 						Ip:             memberHost,
-						Port:           httpPort,
 						ExtensionPorts: extensionPorts,
 						Status:         Health,
 					}
@@ -272,25 +266,24 @@ type addressServerMemberLookup struct {
 	addressPort   int32
 	urlPath       string
 	isShutdown    bool
+	refreshFuture polerpc.Future
 }
 
 func (s *addressServerMemberLookup) Start() error {
 	s.addressServer = sys.GetEnvHolder().ClusterCfg.LookupCfg.AddressLookupCfg.ServerAddr
 	s.addressPort = sys.GetEnvHolder().ClusterCfg.LookupCfg.AddressLookupCfg.ServerPort
 	s.urlPath = sys.GetEnvHolder().ClusterCfg.LookupCfg.AddressLookupCfg.ServerPath
-
+	s.startWatchAddressServer()
 	return nil
 }
 
 func (s *addressServerMemberLookup) startWatchAddressServer() {
-	polerpc.DoTickerSchedule(s.ctx, func() {
+	s.refreshFuture = polerpc.DoTickerSchedule(func() {
 		url := utils.BuildHttpsUrl(utils.BuildServerAddr(s.addressServer, s.addressPort), s.urlPath)
-		for {
-			if s.isShutdown {
-				s.ctx.Done()
-			} else {
-				s.getClusterInfoFromServer(url)
-			}
+		if s.isShutdown {
+			return
+		} else {
+			s.getClusterInfoFromServer(url)
 		}
 	}, time.Duration(5)*time.Second)
 }
@@ -298,13 +291,13 @@ func (s *addressServerMemberLookup) startWatchAddressServer() {
 func (s *addressServerMemberLookup) getClusterInfoFromServer(url string) {
 	resp, err := http.Get(url)
 	if err != nil {
-		sys.LookupLogger.Error(s.ctx, "get cluster.conf from address-server has error  : %s", err)
+		sys.LookupLogger.Error("get cluster.conf from address-server has error  : %s", err)
 	} else {
 		if resp.StatusCode == http.StatusOK {
 			ss := utils.ReadAllLines(resp.Body)
 			s.observer(MultiParse(ss...))
 		} else {
-			sys.LookupLogger.Error(s.ctx, "get cluster.conf from address-server failed : %s",
+			sys.LookupLogger.Error("get cluster.conf from address-server failed : %s",
 				utils.ReadContent(resp.Body))
 		}
 	}
@@ -315,6 +308,7 @@ func (s *addressServerMemberLookup) Observer(observer func(newMembers []*Member)
 }
 
 func (s *addressServerMemberLookup) Shutdown() {
+	s.refreshFuture.Cancel()
 	s.isShutdown = true
 }
 

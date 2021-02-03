@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/pole-group/pole/common"
+	"github.com/pole-group/pole/pojo"
 )
 
 func createTestLessor() *Lessor {
@@ -20,8 +21,18 @@ func TestLessor_GrantLess(t *testing.T) {
 	lessor := createTestLessor()
 
 	instance := Instance{
-		host: "127.0.0.1",
-		port: 80,
+		originInstance: &pojo.Instance{
+			ServiceName:     "",
+			Group:           "",
+			Ip:              "127.0.0.1",
+			Port:            80,
+			ClusterName:     "",
+			Weight:          0,
+			Metadata:        nil,
+			Ephemeral:       false,
+			Enabled:         false,
+			HealthCheckType: 0,
+		},
 	}
 
 	lessor.GrantLess(instance)

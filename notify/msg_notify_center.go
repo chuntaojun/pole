@@ -38,7 +38,7 @@ type msgPublisherCenter struct {
 	sharePublisher *SharePublisher
 	Publishers     sync.Map
 	hasSubscriber  bool
-	log            utils.Logger
+	log            polerpc.Logger
 	// just for test
 	onExpire func(event Event)
 }
@@ -274,7 +274,6 @@ type Publisher struct {
 func (p *Publisher) start() {
 	p.init.Do(func() {
 		ctx := common.NewCtxPole()
-		ctx.Write(utils.TraceIDKey, p.topic)
 		polerpc.Go(ctx, func(ctx context.Context) {
 			p.openHandler(ctx)
 		})
@@ -307,14 +306,14 @@ func (p *Publisher) openHandler(cxt context.Context) {
 
 	defer func() {
 		if err := recover(); err != nil {
-			p.owner.log.Debug(cxt, "dispose fast event has error : %s", err)
+			p.owner.log.Error("%s : dispose fast event has error : %s", p.topic, err)
 		}
 	}()
 
 	<-p.canOpen
 
 	for e := range p.queue {
-		p.owner.log.Debug(cxt, "handler receive fast event : %#v", e)
+		p.owner.log.Debug("%s : handler receive fast event : %#v", p.topic, e)
 		p.notifySubscriber(cxt, e)
 	}
 }
@@ -325,7 +324,7 @@ func (p *Publisher) notifySubscriber(ctx context.Context, event Event) {
 
 		defer func() {
 			if err := recover(); err != nil {
-				p.owner.log.Error(ctx, "notify subscriber has error : %s", err)
+				p.owner.log.Error("%s : notify subscriber has error : %s", p.topic, err)
 			}
 		}()
 
@@ -354,7 +353,6 @@ type SharePublisher struct {
 func (sp *SharePublisher) start() {
 	sp.init.Do(func() {
 		ctx := common.NewCtxPole()
-		ctx.Write(utils.TraceIDKey, sp.topic)
 		polerpc.Go(ctx, func(ctx context.Context) {
 			sp.openHandler(ctx)
 		})
@@ -407,14 +405,14 @@ func (sp *SharePublisher) openHandler(ctx context.Context) {
 
 	defer func() {
 		if err := recover(); err != nil {
-			sp.owner.log.Debug(ctx, "dispose slow event has error : %s", err)
+			sp.owner.log.Debug("%s : dispose slow event has error : %s", sp.topic, err)
 		}
 	}()
 
 	<-sp.canOpen
 
 	for e := range sp.queue {
-		sp.owner.log.Debug(ctx, "handler receive slow event : %#v", e)
+		sp.owner.log.Debug("%s : handler receive slow event : %#v", sp.topic, e)
 		sp.notifySubscriber(e)
 	}
 }

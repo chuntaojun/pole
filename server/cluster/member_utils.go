@@ -13,12 +13,23 @@ import (
 	"github.com/pole-group/pole/utils"
 )
 
-func OnSuccess(m *Member) {
+type ProtocolPort string
+
+const (
+	ServerPort    ProtocolPort = "server-port"
+	DiscoveryPort ProtocolPort = "discovery-port"
+	ConfigPort    ProtocolPort = "config-port"
+	CPPort        ProtocolPort = "cp-port"
+	APPort        ProtocolPort = "ap-port"
+)
+
+func OnSuccess(mgn *ServerClusterManager, m *Member) {
 	m.accessFailCnt = 0
 	m.Status = Health
+	mgn.UpdateMember(m)
 }
 
-func OnFail(m *Member, err error) {
+func OnFail(mgn *ServerClusterManager, m *Member, err error) {
 	m.Status = Impeach
 	if strings.ContainsAny(err.Error(), "Connection refused") {
 		m.Status = Down
@@ -28,6 +39,7 @@ func OnFail(m *Member, err error) {
 			m.Status = Down
 		}
 	}
+	mgn.UpdateMember(m)
 }
 
 func MultiParse(arr ...string) []*Member {
@@ -46,22 +58,16 @@ func SingParse(s string) *Member {
 		panic(err)
 	}
 
-	extensionPort := make(map[string]int32)
+	extensionPort := make(map[ProtocolPort]int32)
 
-	for _, v := range strings.Split(strings.Split(s, "?")[1], "&") {
-		item := strings.Split(v, "=")
-		p, err := strconv.ParseInt(strings.TrimSpace(item[1]), 10, 32)
-
-		if err != nil {
-			panic(err)
-		}
-
-		extensionPort[strings.TrimSpace(item[0])] = int32(p)
-	}
+	extensionPort[ServerPort] = int32(port)
+	extensionPort[DiscoveryPort] = int32(port + 100)
+	extensionPort[ConfigPort] = int32(port + 200)
+	extensionPort[CPPort] = int32(port + 300)
+	extensionPort[APPort] = int32(port + 400)
 
 	return &Member{
 		Ip:             ip,
-		Port:           int32(port),
 		ExtensionPorts: extensionPort,
 		MetaData:       make(map[string]string),
 	}
