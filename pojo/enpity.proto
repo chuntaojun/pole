@@ -66,9 +66,18 @@ enum FileType {
   Conf = 5;
 }
 
+message ConfigMeta {
+  string namespaceId = 1;
+  string group = 2;
+  // 如果开启了加密模式，则必须指定 solt 字段信息
+  bool encrypt = 3;
+  string solt = 4;
+  FileType fileType = 5;
+}
+
 message ConfigFile {
-  string group = 1;
+  ConfigMeta meta = 1;
   string fileName = 2;
-  FileType fileType = 3;
-  string content = 4;
+  string content = 3;
+  int64 version = 4;
 }

@@ -8,8 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/dgraph-io/badger/v2"
-
-	"github.com/pole-group/pole/utils"
+	polerpc "github.com/pole-group/pole-rpc"
 )
 
 type DataOp int32
@@ -32,13 +31,13 @@ const (
 
 type kvHookHolder struct {
 	hLock sync.RWMutex
-	hooks map[HookType]utils.Set
+	hooks map[HookType]*polerpc.Set
 }
 
 func newKvHookHolder() *kvHookHolder {
 	return &kvHookHolder{
 		hLock: sync.RWMutex{},
-		hooks: make(map[HookType]utils.Set),
+		hooks: make(map[HookType]*polerpc.Set),
 	}
 }
 
@@ -47,7 +46,7 @@ func (kh *kvHookHolder) RegisterHook(t HookType, h KvHook) {
 	kh.hLock.Lock()
 
 	if _, exist := kh.hooks[t]; !exist {
-		kh.hooks[t] = utils.NewSet()
+		kh.hooks[t] = polerpc.NewSet()
 	}
 	kh.hooks[t].Add(h)
 }

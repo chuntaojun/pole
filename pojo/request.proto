@@ -98,4 +98,35 @@ message InstancesList {
   repeated Instance instances = 1;
 }
 
+message ConfigRequestMeta {
+  string namespaceId = 1;
+  string group = 2;
+  // 如果开启了加密模式，则必须指定 solt 字段信息
+  bool encrypt = 3;
+  string solt = 4;
+}
+
+message ConfigBetaInfo {
+  bool open = 1;
+  repeated string clientIds = 2;
+}
+
 // request pojo for config
+message ConfigRequest {
+  ConfigRequestMeta meta = 1;
+  string fileName = 2;
+  string content = 3;
+  FileType fileType = 4;
+  ConfigBetaInfo betaInfo = 5;
+}
+
+message WatchItem {
+  repeated string fileName = 2;
+}
+
+message ConfigWatchRequest {
+  // 用于唯一标示一条配置监听的链接，server端根据这个信息进行监听数据的聚合
+  string id = 1;
+  string namespace = 2;
+  map<string, WatchItem> watchItemMap = 3;
+}

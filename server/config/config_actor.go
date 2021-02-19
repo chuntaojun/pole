@@ -1,22 +1,28 @@
+// Copyright (c) 2020, pole-group. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package config
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pole-group/pole/common"
 )
 
-type FilterChain struct {
+type HandlerChain struct {
 	filters []ConfigFilter
 }
 
-func (fc *FilterChain) Init(ctx *common.ContextPole) {
+func (fc *HandlerChain) Init(ctx *common.ContextPole) {
 	fc.filters = append(fc.filters, &CapacityConfigFilter{})
 	fc.filters = append(fc.filters, &AuditConfigFilter{})
 	fc.filters = append(fc.filters, &EncryptConfigFilter{})
 }
 
-func (fc *FilterChain) Do(ctx common.ContextPole, cfg interface{}) error {
+//Do 对请求做处理
+func (fc *HandlerChain) Do(ctx context.Context, cfg interface{}) error {
 	switch c := cfg.(type) {
 	case *ConfigFile:
 		for _, filter := range fc.filters {
@@ -32,38 +38,39 @@ func (fc *FilterChain) Do(ctx common.ContextPole, cfg interface{}) error {
 	return nil
 }
 
-func (fc *FilterChain) Shutdown() {
+//Shutdown 关闭操作链
+func (fc *HandlerChain) Shutdown() {
 
 }
 
 type ConfigFilter interface {
 	// doFilter
-	doFilter(ctx common.ContextPole, cfg *ConfigFile)
+	doFilter(ctx context.Context, cfg *ConfigFile)
 	// doBetaFilter
-	doBetaFilter(ctx common.ContextPole, cfg *ConfigBetaFile)
+	doBetaFilter(ctx context.Context, cfg *ConfigBetaFile)
 	// doHistoryFilter
-	doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile)
+	doHistoryFilter(ctx context.Context, cfg *ConfigHistoryFile)
 	// doOnFinish
-	doOnFinish(ctx common.ContextPole, cfg ConfigMetadata)
+	doOnFinish(ctx context.Context, cfg ConfigMetadata)
 }
 
 // 容量管理记录
 type CapacityConfigFilter struct {
 }
 
-func (cf *CapacityConfigFilter) doFilter(ctx common.ContextPole, cfg *ConfigFile) {
+func (cf *CapacityConfigFilter) doFilter(ctx context.Context, cfg *ConfigFile) {
 
 }
 
-func (cf *CapacityConfigFilter) doBetaFilter(ctx common.ContextPole, cfg *ConfigBetaFile) {
+func (cf *CapacityConfigFilter) doBetaFilter(ctx context.Context, cfg *ConfigBetaFile) {
 
 }
 
-func (cf *CapacityConfigFilter) doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile) {
+func (cf *CapacityConfigFilter) doHistoryFilter(ctx context.Context, cfg *ConfigHistoryFile) {
 
 }
 
-func (cf *CapacityConfigFilter) doOnFinish(ctx common.ContextPole, cfg ConfigMetadata) {
+func (cf *CapacityConfigFilter) doOnFinish(ctx context.Context, cfg ConfigMetadata) {
 
 }
 
@@ -71,19 +78,19 @@ func (cf *CapacityConfigFilter) doOnFinish(ctx common.ContextPole, cfg ConfigMet
 type AuditConfigFilter struct {
 }
 
-func (af *AuditConfigFilter) doFilter(ctx common.ContextPole, cfg *ConfigFile) {
+func (af *AuditConfigFilter) doFilter(ctx context.Context, cfg *ConfigFile) {
 
 }
 
-func (af *AuditConfigFilter) doBetaFilter(ctx common.ContextPole, cfg *ConfigBetaFile) {
+func (af *AuditConfigFilter) doBetaFilter(ctx context.Context, cfg *ConfigBetaFile) {
 
 }
 
-func (af *AuditConfigFilter) doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile) {
+func (af *AuditConfigFilter) doHistoryFilter(ctx context.Context, cfg *ConfigHistoryFile) {
 
 }
 
-func (af *AuditConfigFilter) doOnFinish(ctx common.ContextPole, cfg ConfigMetadata) {
+func (af *AuditConfigFilter) doOnFinish(ctx context.Context, cfg ConfigMetadata) {
 
 }
 
@@ -91,18 +98,18 @@ func (af *AuditConfigFilter) doOnFinish(ctx common.ContextPole, cfg ConfigMetada
 type EncryptConfigFilter struct {
 }
 
-func (ef *EncryptConfigFilter) doFilter(ctx common.ContextPole, cfg *ConfigFile) {
+func (ef *EncryptConfigFilter) doFilter(ctx context.Context, cfg *ConfigFile) {
 
 }
 
-func (ef *EncryptConfigFilter) doBetaFilter(ctx common.ContextPole, cfg *ConfigBetaFile) {
+func (ef *EncryptConfigFilter) doBetaFilter(ctx context.Context, cfg *ConfigBetaFile) {
 
 }
 
-func (ef *EncryptConfigFilter) doHistoryFilter(ctx common.ContextPole, cfg *ConfigHistoryFile) {
+func (ef *EncryptConfigFilter) doHistoryFilter(ctx context.Context, cfg *ConfigHistoryFile) {
 
 }
 
-func (ef *EncryptConfigFilter) doOnFinish(ctx common.ContextPole, cfg ConfigMetadata) {
+func (ef *EncryptConfigFilter) doOnFinish(ctx context.Context, cfg ConfigMetadata) {
 
 }

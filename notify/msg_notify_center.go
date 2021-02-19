@@ -363,9 +363,9 @@ func (sp *SharePublisher) AddSubscriber(s Subscriber) {
 	switch t := s.(type) {
 	case SingleSubscriber:
 		topic := t.SubscribeType()
-		sp.listeners.LoadOrStore(topic.Name(), utils.NewSyncSet())
+		sp.listeners.LoadOrStore(topic.Name(), polerpc.NewSyncSet())
 		if set, exist := sp.listeners.Load(topic.Name()); exist {
-			set.(*utils.SyncSet).Add(s)
+			set.(*polerpc.SyncSet).Add(s)
 			return
 		}
 		panic(ErrorAddSubscriber)
@@ -373,9 +373,9 @@ func (sp *SharePublisher) AddSubscriber(s Subscriber) {
 		for _, topic := range t.SubscribeTypes() {
 			switch t := topic.(type) {
 			case SlowEvent:
-				sp.listeners.LoadOrStore(t.Name(), utils.NewSyncSet())
+				sp.listeners.LoadOrStore(t.Name(), polerpc.NewSyncSet())
 				if set, exist := sp.listeners.Load(t.Name()); exist {
-					set.(*utils.SyncSet).Add(s)
+					set.(*polerpc.SyncSet).Add(s)
 				}
 			}
 		}
@@ -388,14 +388,14 @@ func (sp *SharePublisher) RemoveSubscriber(s Subscriber) {
 	case SingleSubscriber:
 		topic := t.SubscribeType()
 		if set, exist := sp.listeners.Load(topic.Name()); exist {
-			set.(*utils.SyncSet).Remove(s)
+			set.(*polerpc.SyncSet).Remove(s)
 			return
 		}
 		panic(ErrorAddSubscriber)
 	case MultiSubscriber:
 		for _, topic := range t.SubscribeTypes() {
 			if set, exist := sp.listeners.Load(topic.Name()); exist {
-				set.(*utils.SyncSet).Remove(s)
+				set.(*polerpc.SyncSet).Remove(s)
 			}
 		}
 	}
@@ -420,7 +420,7 @@ func (sp *SharePublisher) openHandler(ctx context.Context) {
 func (sp *SharePublisher) notifySubscriber(event Event) {
 	topic := event.Name()
 	if set, exist := sp.listeners.Load(topic); exist {
-		set.(*utils.SyncSet).Range(func(value interface{}) {
+		set.(*polerpc.SyncSet).Range(func(value interface{}) {
 			value.(Subscriber).OnEvent(event)
 		})
 	}

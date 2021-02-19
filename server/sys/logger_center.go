@@ -17,3 +17,7 @@ var (
 
 	DiscoveryLessLogger = polerpc.NewTestLogger("pole-discovery-less")
 )
+
+var (
+	ConfigWatchLogger = polerpc.NewTestLogger("config-watch")
+)

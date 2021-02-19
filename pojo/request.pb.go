@@ -959,6 +959,324 @@ func (x *InstancesList) GetInstances() []*Instance {
 	return nil
 }
 
+type ConfigRequestMeta struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	NamespaceId string `protobuf:"bytes,1,opt,name=namespaceId,proto3" json:"namespaceId,omitempty"`
+	Group       string `protobuf:"bytes,2,opt,name=group,proto3" json:"group,omitempty"`
+	// 如果开启了加密模式，则必须指定 solt 字段信息
+	Encrypt bool   `protobuf:"varint,3,opt,name=encrypt,proto3" json:"encrypt,omitempty"`
+	Solt    string `protobuf:"bytes,4,opt,name=solt,proto3" json:"solt,omitempty"`
+}
+
+func (x *ConfigRequestMeta) Reset() {
+	*x = ConfigRequestMeta{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_request_proto_msgTypes[15]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ConfigRequestMeta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigRequestMeta) ProtoMessage() {}
+
+func (x *ConfigRequestMeta) ProtoReflect() protoreflect.Message {
+	mi := &file_request_proto_msgTypes[15]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigRequestMeta.ProtoReflect.Descriptor instead.
+func (*ConfigRequestMeta) Descriptor() ([]byte, []int) {
+	return file_request_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ConfigRequestMeta) GetNamespaceId() string {
+	if x != nil {
+		return x.NamespaceId
+	}
+	return ""
+}
+
+func (x *ConfigRequestMeta) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *ConfigRequestMeta) GetEncrypt() bool {
+	if x != nil {
+		return x.Encrypt
+	}
+	return false
+}
+
+func (x *ConfigRequestMeta) GetSolt() string {
+	if x != nil {
+		return x.Solt
+	}
+	return ""
+}
+
+type ConfigBetaInfo struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Open      bool     `protobuf:"varint,1,opt,name=open,proto3" json:"open,omitempty"`
+	ClientIds []string `protobuf:"bytes,2,rep,name=clientIds,proto3" json:"clientIds,omitempty"`
+}
+
+func (x *ConfigBetaInfo) Reset() {
+	*x = ConfigBetaInfo{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_request_proto_msgTypes[16]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ConfigBetaInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigBetaInfo) ProtoMessage() {}
+
+func (x *ConfigBetaInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_request_proto_msgTypes[16]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigBetaInfo.ProtoReflect.Descriptor instead.
+func (*ConfigBetaInfo) Descriptor() ([]byte, []int) {
+	return file_request_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ConfigBetaInfo) GetOpen() bool {
+	if x != nil {
+		return x.Open
+	}
+	return false
+}
+
+func (x *ConfigBetaInfo) GetClientIds() []string {
+	if x != nil {
+		return x.ClientIds
+	}
+	return nil
+}
+
+// request pojo for config
+type ConfigRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Meta     *ConfigRequestMeta `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	FileName string             `protobuf:"bytes,2,opt,name=fileName,proto3" json:"fileName,omitempty"`
+	Content  string             `protobuf:"bytes,3,opt,name=content,proto3" json:"content,omitempty"`
+	FileType FileType           `protobuf:"varint,4,opt,name=fileType,proto3,enum=pojo.FileType" json:"fileType,omitempty"`
+	BetaInfo *ConfigBetaInfo    `protobuf:"bytes,5,opt,name=betaInfo,proto3" json:"betaInfo,omitempty"`
+}
+
+func (x *ConfigRequest) Reset() {
+	*x = ConfigRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_request_proto_msgTypes[17]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ConfigRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigRequest) ProtoMessage() {}
+
+func (x *ConfigRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_request_proto_msgTypes[17]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigRequest.ProtoReflect.Descriptor instead.
+func (*ConfigRequest) Descriptor() ([]byte, []int) {
+	return file_request_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ConfigRequest) GetMeta() *ConfigRequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *ConfigRequest) GetFileName() string {
+	if x != nil {
+		return x.FileName
+	}
+	return ""
+}
+
+func (x *ConfigRequest) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *ConfigRequest) GetFileType() FileType {
+	if x != nil {
+		return x.FileType
+	}
+	return FileType_Yaml
+}
+
+func (x *ConfigRequest) GetBetaInfo() *ConfigBetaInfo {
+	if x != nil {
+		return x.BetaInfo
+	}
+	return nil
+}
+
+type WatchItem struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	FileName []string `protobuf:"bytes,2,rep,name=fileName,proto3" json:"fileName,omitempty"`
+}
+
+func (x *WatchItem) Reset() {
+	*x = WatchItem{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_request_proto_msgTypes[18]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *WatchItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchItem) ProtoMessage() {}
+
+func (x *WatchItem) ProtoReflect() protoreflect.Message {
+	mi := &file_request_proto_msgTypes[18]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchItem.ProtoReflect.Descriptor instead.
+func (*WatchItem) Descriptor() ([]byte, []int) {
+	return file_request_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *WatchItem) GetFileName() []string {
+	if x != nil {
+		return x.FileName
+	}
+	return nil
+}
+
+type ConfigWatchRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// 用于唯一标示一条配置监听的链接，server端根据这个信息进行监听数据的聚合
+	Id           string                `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Namespace    string                `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	WatchItemMap map[string]*WatchItem `protobuf:"bytes,3,rep,name=watchItemMap,proto3" json:"watchItemMap,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+}
+
+func (x *ConfigWatchRequest) Reset() {
+	*x = ConfigWatchRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_request_proto_msgTypes[19]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ConfigWatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConfigWatchRequest) ProtoMessage() {}
+
+func (x *ConfigWatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_request_proto_msgTypes[19]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConfigWatchRequest.ProtoReflect.Descriptor instead.
+func (*ConfigWatchRequest) Descriptor() ([]byte, []int) {
+	return file_request_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ConfigWatchRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ConfigWatchRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+func (x *ConfigWatchRequest) GetWatchItemMap() map[string]*WatchItem {
+	if x != nil {
+		return x.WatchItemMap
+	}
+	return nil
+}
+
 var File_request_proto protoreflect.FileDescriptor
 
 var file_request_proto_rawDesc = []byte{
@@ -1075,7 +1393,49 @@ var file_request_proto_rawDesc = []byte{
 	0x65, 0x73, 0x4c, 0x69, 0x73, 0x74, 0x12, 0x2c, 0x0a, 0x09, 0x69, 0x6e, 0x73, 0x74, 0x61, 0x6e,
 	0x63, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x0e, 0x2e, 0x70, 0x6f, 0x6a, 0x6f,
 	0x2e, 0x49, 0x6e, 0x73, 0x74, 0x61, 0x6e, 0x63, 0x65, 0x52, 0x09, 0x69, 0x6e, 0x73, 0x74, 0x61,
-	0x6e, 0x63, 0x65, 0x73, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x6e, 0x63, 0x65, 0x73, 0x22, 0x79, 0x0a, 0x11, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x4d, 0x65, 0x74, 0x61, 0x12, 0x20, 0x0a, 0x0b, 0x6e, 0x61, 0x6d,
+	0x65, 0x73, 0x70, 0x61, 0x63, 0x65, 0x49, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b,
+	0x6e, 0x61, 0x6d, 0x65, 0x73, 0x70, 0x61, 0x63, 0x65, 0x49, 0x64, 0x12, 0x14, 0x0a, 0x05, 0x67,
+	0x72, 0x6f, 0x75, 0x70, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x67, 0x72, 0x6f, 0x75,
+	0x70, 0x12, 0x18, 0x0a, 0x07, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x18, 0x03, 0x20, 0x01,
+	0x28, 0x08, 0x52, 0x07, 0x65, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x73,
+	0x6f, 0x6c, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x73, 0x6f, 0x6c, 0x74, 0x22,
+	0x42, 0x0a, 0x0e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x42, 0x65, 0x74, 0x61, 0x49, 0x6e, 0x66,
+	0x6f, 0x12, 0x12, 0x0a, 0x04, 0x6f, 0x70, 0x65, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52,
+	0x04, 0x6f, 0x70, 0x65, 0x6e, 0x12, 0x1c, 0x0a, 0x09, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x49,
+	0x64, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x09, 0x52, 0x09, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74,
+	0x49, 0x64, 0x73, 0x22, 0xd0, 0x01, 0x0a, 0x0d, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x2b, 0x0a, 0x04, 0x6d, 0x65, 0x74, 0x61, 0x18, 0x01, 0x20,
+	0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e, 0x70, 0x6f, 0x6a, 0x6f, 0x2e, 0x43, 0x6f, 0x6e, 0x66, 0x69,
+	0x67, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x4d, 0x65, 0x74, 0x61, 0x52, 0x04, 0x6d, 0x65,
+	0x74, 0x61, 0x12, 0x1a, 0x0a, 0x08, 0x66, 0x69, 0x6c, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x66, 0x69, 0x6c, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x18,
+	0x0a, 0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x07, 0x63, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x12, 0x2a, 0x0a, 0x08, 0x66, 0x69, 0x6c, 0x65,
+	0x54, 0x79, 0x70, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x0e, 0x2e, 0x70, 0x6f, 0x6a,
+	0x6f, 0x2e, 0x46, 0x69, 0x6c, 0x65, 0x54, 0x79, 0x70, 0x65, 0x52, 0x08, 0x66, 0x69, 0x6c, 0x65,
+	0x54, 0x79, 0x70, 0x65, 0x12, 0x30, 0x0a, 0x08, 0x62, 0x65, 0x74, 0x61, 0x49, 0x6e, 0x66, 0x6f,
+	0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x70, 0x6f, 0x6a, 0x6f, 0x2e, 0x43, 0x6f,
+	0x6e, 0x66, 0x69, 0x67, 0x42, 0x65, 0x74, 0x61, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x08, 0x62, 0x65,
+	0x74, 0x61, 0x49, 0x6e, 0x66, 0x6f, 0x22, 0x27, 0x0a, 0x09, 0x57, 0x61, 0x74, 0x63, 0x68, 0x49,
+	0x74, 0x65, 0x6d, 0x12, 0x1a, 0x0a, 0x08, 0x66, 0x69, 0x6c, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x18,
+	0x02, 0x20, 0x03, 0x28, 0x09, 0x52, 0x08, 0x66, 0x69, 0x6c, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x22,
+	0xe4, 0x01, 0x0a, 0x12, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x57, 0x61, 0x74, 0x63, 0x68, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x0e, 0x0a, 0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x1c, 0x0a, 0x09, 0x6e, 0x61, 0x6d, 0x65, 0x73, 0x70,
+	0x61, 0x63, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x6e, 0x61, 0x6d, 0x65, 0x73,
+	0x70, 0x61, 0x63, 0x65, 0x12, 0x4e, 0x0a, 0x0c, 0x77, 0x61, 0x74, 0x63, 0x68, 0x49, 0x74, 0x65,
+	0x6d, 0x4d, 0x61, 0x70, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x2a, 0x2e, 0x70, 0x6f, 0x6a,
+	0x6f, 0x2e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x57, 0x61, 0x74, 0x63, 0x68, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x2e, 0x57, 0x61, 0x74, 0x63, 0x68, 0x49, 0x74, 0x65, 0x6d, 0x4d, 0x61,
+	0x70, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x52, 0x0c, 0x77, 0x61, 0x74, 0x63, 0x68, 0x49, 0x74, 0x65,
+	0x6d, 0x4d, 0x61, 0x70, 0x1a, 0x50, 0x0a, 0x11, 0x57, 0x61, 0x74, 0x63, 0x68, 0x49, 0x74, 0x65,
+	0x6d, 0x4d, 0x61, 0x70, 0x45, 0x6e, 0x74, 0x72, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x6b, 0x65, 0x79,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x6b, 0x65, 0x79, 0x12, 0x25, 0x0a, 0x05, 0x76,
+	0x61, 0x6c, 0x75, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x0f, 0x2e, 0x70, 0x6f, 0x6a,
+	0x6f, 0x2e, 0x57, 0x61, 0x74, 0x63, 0x68, 0x49, 0x74, 0x65, 0x6d, 0x52, 0x05, 0x76, 0x61, 0x6c,
+	0x75, 0x65, 0x3a, 0x02, 0x38, 0x01, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1090,7 +1450,7 @@ func file_request_proto_rawDescGZIP() []byte {
 	return file_request_proto_rawDescData
 }
 
-var file_request_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_request_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_request_proto_goTypes = []interface{}{
 	(*InstanceRegister)(nil),       // 0: pojo.InstanceRegister
 	(*InstanceDeregister)(nil),     // 1: pojo.InstanceDeregister
@@ -1107,26 +1467,38 @@ var file_request_proto_goTypes = []interface{}{
 	(*QueryInstanceWithPage)(nil),  // 12: pojo.QueryInstanceWithPage
 	(*SubscribeService)(nil),       // 13: pojo.SubscribeService
 	(*InstancesList)(nil),          // 14: pojo.InstancesList
-	(*Instance)(nil),               // 15: pojo.Instance
-	(*Service)(nil),                // 16: pojo.Service
-	(*Cluster)(nil),                // 17: pojo.Cluster
+	(*ConfigRequestMeta)(nil),      // 15: pojo.ConfigRequestMeta
+	(*ConfigBetaInfo)(nil),         // 16: pojo.ConfigBetaInfo
+	(*ConfigRequest)(nil),          // 17: pojo.ConfigRequest
+	(*WatchItem)(nil),              // 18: pojo.WatchItem
+	(*ConfigWatchRequest)(nil),     // 19: pojo.ConfigWatchRequest
+	nil,                            // 20: pojo.ConfigWatchRequest.WatchItemMapEntry
+	(*Instance)(nil),               // 21: pojo.Instance
+	(*Service)(nil),                // 22: pojo.Service
+	(*Cluster)(nil),                // 23: pojo.Cluster
+	(FileType)(0),                  // 24: pojo.FileType
 }
 var file_request_proto_depIdxs = []int32{
-	15, // 0: pojo.InstanceRegister.instance:type_name -> pojo.Instance
-	15, // 1: pojo.InstanceDeregister.instance:type_name -> pojo.Instance
-	15, // 2: pojo.InstanceHeartBeat.instance:type_name -> pojo.Instance
-	16, // 3: pojo.ServiceCreate.service:type_name -> pojo.Service
-	16, // 4: pojo.ServiceUpdate.service:type_name -> pojo.Service
-	16, // 5: pojo.ServiceDelete.service:type_name -> pojo.Service
-	17, // 6: pojo.ClusterCreate.cluster:type_name -> pojo.Cluster
-	17, // 7: pojo.ClusterUpdate.cluster:type_name -> pojo.Cluster
-	17, // 8: pojo.ClusterDelete.cluster:type_name -> pojo.Cluster
-	15, // 9: pojo.InstancesList.instances:type_name -> pojo.Instance
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	21, // 0: pojo.InstanceRegister.instance:type_name -> pojo.Instance
+	21, // 1: pojo.InstanceDeregister.instance:type_name -> pojo.Instance
+	21, // 2: pojo.InstanceHeartBeat.instance:type_name -> pojo.Instance
+	22, // 3: pojo.ServiceCreate.service:type_name -> pojo.Service
+	22, // 4: pojo.ServiceUpdate.service:type_name -> pojo.Service
+	22, // 5: pojo.ServiceDelete.service:type_name -> pojo.Service
+	23, // 6: pojo.ClusterCreate.cluster:type_name -> pojo.Cluster
+	23, // 7: pojo.ClusterUpdate.cluster:type_name -> pojo.Cluster
+	23, // 8: pojo.ClusterDelete.cluster:type_name -> pojo.Cluster
+	21, // 9: pojo.InstancesList.instances:type_name -> pojo.Instance
+	15, // 10: pojo.ConfigRequest.meta:type_name -> pojo.ConfigRequestMeta
+	24, // 11: pojo.ConfigRequest.fileType:type_name -> pojo.FileType
+	16, // 12: pojo.ConfigRequest.betaInfo:type_name -> pojo.ConfigBetaInfo
+	20, // 13: pojo.ConfigWatchRequest.watchItemMap:type_name -> pojo.ConfigWatchRequest.WatchItemMapEntry
+	18, // 14: pojo.ConfigWatchRequest.WatchItemMapEntry.value:type_name -> pojo.WatchItem
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_request_proto_init() }
@@ -1316,6 +1688,66 @@ func file_request_proto_init() {
 				return nil
 			}
 		}
+		file_request_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ConfigRequestMeta); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_request_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ConfigBetaInfo); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_request_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ConfigRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_request_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*WatchItem); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_request_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ConfigWatchRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1323,7 +1755,7 @@ func file_request_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_request_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

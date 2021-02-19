@@ -9,8 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	polerpc "github.com/pole-group/pole-rpc"
+
 	"github.com/pole-group/pole/server/sys"
-	"github.com/pole-group/pole/utils"
 )
 
 type ProtocolPort string
@@ -76,7 +77,7 @@ func SingParse(s string) *Member {
 func KRandomMember(k int, members []*Member, filter func(m *Member) bool) []*Member {
 
 	totalSize := len(members)
-	set := utils.NewSet()
+	set := polerpc.NewSet()
 
 	for i := 0; i < 3*totalSize && set.Size() <= k; i++ {
 		idx := rand.Intn(totalSize)
