@@ -31,7 +31,7 @@ type ConfigTmpFile struct {
 }
 
 type ConfigBetaFile struct {
-	ConfigFile
+	Cfg         *ConfigFile
 	BetaClients []string
 }
 

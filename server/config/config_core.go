@@ -6,6 +6,7 @@ package config
 
 import (
 	"context"
+	"net/http"
 	"sync"
 
 	"github.com/golang/protobuf/ptypes"
@@ -21,7 +22,7 @@ import (
 type ConfigCore struct {
 	filterChain *HandlerChain
 	watcherMgn  *WatcherManager
-	storageOp   ConfigStorageOperator
+	storageOp   StorageOperator
 }
 
 func newConfigCore() *ConfigCore {
@@ -42,11 +43,34 @@ func (c *ConfigCore) operateConfig(op ConfigOpType, request *pojo.ConfigRequest,
 		FType:   request.FileType,
 		Version: utils.GetCurrentTimeMs(),
 	}
-	c.filterChain.Do(context.TODO(), cFile)
+	err := c.filterChain.Do(context.TODO(), cFile)
+	if err != nil {
+		rpcCtx.Send(&polerpc.ServerResponse{
+			Code: http.StatusInternalServerError,
+			Msg:  err.Error(),
+		})
+		return
+	}
 	if request.BetaInfo.Open {
-		cbFile := &ConfigBetaFile{
-			ConfigFile: *cFile,
-		}
+		c.operateBetaConfig(op, &ConfigBetaFile{
+			Cfg:         cFile,
+			BetaClients: request.BetaInfo.ClientIds,
+		})
+	} else {
+		c.operateNormalConfig(op, cFile)
+	}
+
+}
+
+func (c *ConfigCore) operateNormalConfig(op ConfigOpType, cfg *ConfigFile) {
+	if op == OpForCreateConfig || op == OpForModifyConfig {
+		c.storageOp.SaveConfig(cfg)
+	}
+
+}
+
+func (c *ConfigCore) operateBetaConfig(op ConfigOpType, cfg *ConfigBetaFile) {
+	if op == OpForCreateConfig || op == OpForModifyConfig {
 	}
 
 }

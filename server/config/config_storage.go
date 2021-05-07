@@ -5,9 +5,15 @@
 package config
 
 import (
+	"context"
+	"database/sql"
 	"github.com/pole-group/pole/plugin"
 	"github.com/pole-group/pole/server/storage"
 )
+
+type CfgFunction func(tx *sql.Tx, cfg *ConfigFile)
+
+type CbCfgFunction func(tx *sql.Tx, cfg *ConfigBetaFile)
 
 type ConfigQuery struct {
 	Namespace string
@@ -15,38 +21,86 @@ type ConfigQuery struct {
 	FileName  string
 }
 
-type ConfigStorageOperator interface {
+type ConfigOpContext struct {
+	ctx context.Context
+	db  *sql.DB
+	tx  *sql.Tx
+}
+
+func NewConfigOpContext(ctx context.Context, db *sql.DB) *ConfigOpContext {
+	return &ConfigOpContext{
+		ctx: ctx,
+		db:  db,
+	}
+}
+
+func (ctx *ConfigOpContext) Begin() (bool, error) {
+	tx, err := ctx.db.BeginTx(ctx.ctx, &sql.TxOptions{
+		Isolation: sql.LevelReadCommitted,
+		ReadOnly:  false,
+	})
+	if err != nil {
+		return false, err
+	}
+	ctx.tx = tx
+	return true, nil
+}
+
+func (ctx *ConfigOpContext) Run(cfg *ConfigFile, chain ...CfgFunction) {
+	for _, op := range chain {
+		op(ctx.tx, cfg)
+	}
+}
+
+func (ctx *ConfigOpContext) RunBeta(cfg *ConfigBetaFile, chain ...[]CfgFunction) {
+	for _, op := range chain {
+		op(ctx.tx, cfg)
+	}
+}
+
+func (ctx *ConfigOpContext) Commit() (bool, error) {
+	err := ctx.tx.Commit()
+	return err == nil, err
+}
+
+type StorageAtomicOperator interface {
 	plugin.Plugin
 
-	CreateConfig(cfg *ConfigFile)
+	CreateConfig(tx *sql.Tx, cfg *ConfigFile)
 
-	ModifyConfig(cfg *ConfigFile)
+	ModifyConfig(tx *sql.Tx, cfg *ConfigFile)
+
+	DeleteConfig(tx *sql.Tx, cfg *ConfigFile)
+
+	FindOneConfig(tx *sql.Tx, query ConfigQuery) *ConfigFile
+
+	CreateBetaConfig(tx *sql.Tx, cfg *ConfigBetaFile)
+
+	ModifyBetaConfig(tx *sql.Tx, cfg *ConfigBetaFile)
+
+	DeleteBetaConfig(tx *sql.Tx, cfg *ConfigBetaFile)
+
+	FindOneBetaConfig(tx *sql.Tx, query ConfigQuery) *ConfigBetaFile
+
+	CreateHistoryConfig(tx *sql.Tx, cfg *ConfigHistoryFile)
+
+	DeleteHistoryConfig(tx *sql.Tx, cfg *ConfigHistoryFile)
+
+	FindOneHistoryConfig(tx *sql.Tx, query ConfigQuery) *ConfigHistoryFile
+}
+
+type StorageOperator interface {
+	PublishConfig(cfg *ConfigFile)
+
+	SaveConfig(cfg *ConfigFile)
 
 	DeleteConfig(cfg *ConfigFile)
 
-	BatchCreateConfig(cfgs []*ConfigFile)
+	PublishBetaConfig(cfg *ConfigBetaFile)
 
-	BatchModifyConfig(cfgs []*ConfigFile)
-
-	BatchRemoveConfig(cfgs []*ConfigFile)
-
-	FindOneConfig(query ConfigQuery) *ConfigFile
+	DeleteBetaConfig(cfg *ConfigFile)
 
 	FindConfigs(query ConfigQuery) *[]ConfigFile
-
-	CreateBetaConfig(cfg *ConfigBetaFile)
-
-	ModifyBetaConfig(cfg *ConfigBetaFile)
-
-	DeleteBetaConfig(cfg *ConfigBetaFile)
-
-	FindOneBetaConfig(query ConfigQuery) *ConfigBetaFile
-
-	CreateHistoryConfig(cfg *ConfigHistoryFile)
-
-	DeleteHistoryConfig(cfg *ConfigHistoryFile)
-
-	FindOneHistoryConfig(query ConfigQuery) *ConfigHistoryFile
 }
 
 type EmbeddedRdsConfigStorage struct {
@@ -54,4 +108,5 @@ type EmbeddedRdsConfigStorage struct {
 }
 
 type ExternalRdsConfigStorage struct {
+	rds *sql.DB
 }
