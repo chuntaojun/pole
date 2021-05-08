@@ -7,6 +7,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 
 	polerpc "github.com/pole-group/pole-rpc"
@@ -32,6 +33,7 @@ func (se *ServiceChangeEvent) Sequence() int64 {
 	return utils.GetCurrentTimeMs()
 }
 
+//DiscoveryCore 服务发现核心模块
 type DiscoveryCore struct {
 	serviceMgn      *ServiceManager
 	subscriberMgn   *SubscriberManager
@@ -61,7 +63,7 @@ func (sm *ServiceManager) addInstance(req *pojo.InstanceRegister, sink polerpc.R
 	service, err := sm.createServiceIfAbsent(namespaceId, serviceName, groupName)
 	if err != nil {
 		sink.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  err.Error(),
 		})
 		return
@@ -88,7 +90,7 @@ func (sm *ServiceManager) removeInstance(req *pojo.InstanceDeregister, sink pole
 	namespace, exist := sm.services[namespaceId]
 	if !exist {
 		sink.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  fmt.Sprintf("namespace : %s not exist", namespaceId),
 		})
 		return
@@ -96,7 +98,7 @@ func (sm *ServiceManager) removeInstance(req *pojo.InstanceDeregister, sink pole
 	service, exist := namespace[name]
 	if !exist {
 		sink.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  fmt.Sprintf("service : %s not exist", name),
 		})
 		return
@@ -108,13 +110,13 @@ func (sm *ServiceManager) removeInstance(req *pojo.InstanceDeregister, sink pole
 	_, err := service.removeInstance(instance)
 	if err != nil {
 		sink.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  fmt.Sprintf("service : %s not exist", name),
 		})
 		return
 	}
 	sink.Send(&polerpc.ServerResponse{
-		Code: 0,
+		Code: http.StatusOK,
 		Msg:  "success",
 	})
 }
@@ -200,7 +202,7 @@ func (sm *ServiceManager) storeInstanceInfo(sink polerpc.RpcServerContext, servi
 	if t := cluster.(*Cluster).GetCInstanceType(); t != CInstanceUnKnow && (t != utils.IF(instance.IsTemporary(),
 		CInstanceTemporary, CInstancePersist).(CInstanceType)) {
 		sink.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  "A service can only be a persistent or non-persistent instance",
 		})
 		return
@@ -210,14 +212,14 @@ func (sm *ServiceManager) storeInstanceInfo(sink polerpc.RpcServerContext, servi
 	sm.core.storageOperator.SaveInstance(context.Background(), &instance, func(err error, instance *Instance) {
 		if err != nil {
 			sink.Send(&polerpc.ServerResponse{
-				Code: -1,
+				Code: http.StatusInternalServerError,
 				Msg:  err.Error(),
 			})
 			return
 		}
 		if _, err := service.addInstance(*instance, metadata); err != nil {
 			sink.Send(&polerpc.ServerResponse{
-				Code: -1,
+				Code: http.StatusInternalServerError,
 				Msg:  err.Error(),
 			})
 			return
@@ -227,17 +229,17 @@ func (sm *ServiceManager) storeInstanceInfo(sink polerpc.RpcServerContext, servi
 			sm.lessHolder.GrantLess(*instance)
 		}
 		sink.Send(&polerpc.ServerResponse{
-			Code: 0,
+			Code: http.StatusOK,
 			Msg:  "success",
 		})
 	})
 }
 
-// 索引管理，管理着 host:port => service 的映射信息
+//AddressMapService 索引管理，管理着 host:port => service 的映射信息
 type AddressMapService struct {
 }
 
-// 服务订阅，使用流式推送的方式进行处理
+//Subscriber 服务订阅，使用流式推送的方式进行处理
 type Subscriber struct {
 	rpcCtx polerpc.RpcServerContext
 }

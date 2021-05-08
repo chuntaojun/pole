@@ -62,9 +62,6 @@ func init() {
 		publisherCenter.sharePublisher.topic = "00--0-SlowEvent-0--00"
 		// 设置共享事件发布者开启
 		publisherCenter.sharePublisher.start()
-		// 还不允许事件通知消费者，为了避免消息丢失
-		publisherCenter.sharePublisher.canOpen = make(chan bool)
-
 	})
 }
 
@@ -266,7 +263,6 @@ type Publisher struct {
 	queue        chan Event
 	topic        string
 	subscribers  sync.Map
-	canOpen      chan bool
 	init         sync.Once
 	lastSequence int64
 }
@@ -274,8 +270,8 @@ type Publisher struct {
 func (p *Publisher) start() {
 	p.init.Do(func() {
 		ctx := common.NewCtxPole()
-		polerpc.Go(ctx, func(ctx context.Context) {
-			p.openHandler(ctx)
+		polerpc.Go(ctx, func(arg interface{}) {
+			p.openHandler(arg.(*common.ContextPole))
 		})
 	})
 }
@@ -291,7 +287,6 @@ func (p *Publisher) PublishEvent(ctx context.Context, event Event) (bool, error)
 
 func (p *Publisher) AddSubscriber(s Subscriber) {
 	p.subscribers.Store(s, member)
-	p.canOpen <- true
 }
 
 func (p *Publisher) RemoveSubscriber(s Subscriber) {
@@ -309,9 +304,6 @@ func (p *Publisher) openHandler(cxt context.Context) {
 			p.owner.log.Error("%s : dispose fast event has error : %s", p.topic, err)
 		}
 	}()
-
-	<-p.canOpen
-
 	for e := range p.queue {
 		p.owner.log.Debug("%s : handler receive fast event : %#v", p.topic, e)
 		p.notifySubscriber(cxt, e)
@@ -353,8 +345,8 @@ type SharePublisher struct {
 func (sp *SharePublisher) start() {
 	sp.init.Do(func() {
 		ctx := common.NewCtxPole()
-		polerpc.Go(ctx, func(ctx context.Context) {
-			sp.openHandler(ctx)
+		polerpc.Go(ctx, func(arg interface{}) {
+			sp.openHandler(arg.(*common.ContextPole))
 		})
 	})
 }
@@ -365,7 +357,7 @@ func (sp *SharePublisher) AddSubscriber(s Subscriber) {
 		topic := t.SubscribeType()
 		sp.listeners.LoadOrStore(topic.Name(), polerpc.NewSyncSet())
 		if set, exist := sp.listeners.Load(topic.Name()); exist {
-			set.(*polerpc.SyncSet).Add(s)
+			set.(*polerpc.ConcurrentSet).Add(s)
 			return
 		}
 		panic(ErrorAddSubscriber)
@@ -375,12 +367,11 @@ func (sp *SharePublisher) AddSubscriber(s Subscriber) {
 			case SlowEvent:
 				sp.listeners.LoadOrStore(t.Name(), polerpc.NewSyncSet())
 				if set, exist := sp.listeners.Load(t.Name()); exist {
-					set.(*polerpc.SyncSet).Add(s)
+					set.(*polerpc.ConcurrentSet).Add(s)
 				}
 			}
 		}
 	}
-	sp.canOpen <- true
 }
 
 func (sp *SharePublisher) RemoveSubscriber(s Subscriber) {
@@ -388,14 +379,14 @@ func (sp *SharePublisher) RemoveSubscriber(s Subscriber) {
 	case SingleSubscriber:
 		topic := t.SubscribeType()
 		if set, exist := sp.listeners.Load(topic.Name()); exist {
-			set.(*polerpc.SyncSet).Remove(s)
+			set.(*polerpc.ConcurrentSet).Remove(s)
 			return
 		}
 		panic(ErrorAddSubscriber)
 	case MultiSubscriber:
 		for _, topic := range t.SubscribeTypes() {
 			if set, exist := sp.listeners.Load(topic.Name()); exist {
-				set.(*polerpc.SyncSet).Remove(s)
+				set.(*polerpc.ConcurrentSet).Remove(s)
 			}
 		}
 	}
@@ -409,18 +400,21 @@ func (sp *SharePublisher) openHandler(ctx context.Context) {
 		}
 	}()
 
-	<-sp.canOpen
-
-	for e := range sp.queue {
-		sp.owner.log.Debug("%s : handler receive slow event : %#v", sp.topic, e)
-		sp.notifySubscriber(e)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-sp.queue:
+			sp.owner.log.Debug("%s : handler receive slow event : %#v", sp.topic, e)
+			sp.notifySubscriber(e)
+		}
 	}
 }
 
 func (sp *SharePublisher) notifySubscriber(event Event) {
 	topic := event.Name()
 	if set, exist := sp.listeners.Load(topic); exist {
-		set.(*polerpc.SyncSet).Range(func(value interface{}) {
+		set.(*polerpc.ConcurrentSet).Range(func(value interface{}) {
 			value.(Subscriber).OnEvent(event)
 		})
 	}
