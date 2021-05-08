@@ -6,6 +6,7 @@ package config
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/protobuf/ptypes"
@@ -23,7 +24,7 @@ const (
 	CreateConfig     = ConfigCommonPath + "create"
 	ModifyConfig     = ConfigCommonPath + "modify"
 	DeleteConfig     = ConfigCommonPath + "delete"
-	WatchConfig      = ConfigCommonPath + "watch"
+	WatchConfig      = ConfigCommonPath + "watchConfig"
 )
 
 type ConfigServer struct {
@@ -113,7 +114,7 @@ func (ca *ConfAPI) Init(ctx *common.ContextPole) {
 	ca.server.RegisterRequestHandler(CreateConfig, ca.createConfig)
 	ca.server.RegisterRequestHandler(ModifyConfig, ca.modifyConfig)
 	ca.server.RegisterRequestHandler(DeleteConfig, ca.deleteConfig)
-	ca.server.RegisterChannelRequestHandler(WatchConfig, ca.watch)
+	ca.server.RegisterChannelRequestHandler(WatchConfig, ca.watchConfig)
 }
 
 //publishConfig 允许配置文件可以被客户端访问查询
@@ -122,7 +123,7 @@ func (ca *ConfAPI) publishConfig(cxt context.Context, rpcCtx polerpc.RpcServerCo
 	cfgReq := new(pojo.ConfigRequest)
 	if err := ptypes.UnmarshalAny(req.Body, cfgReq); err != nil {
 		_ = rpcCtx.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  err.Error(),
 		})
 		return
@@ -136,7 +137,7 @@ func (ca *ConfAPI) createConfig(cxt context.Context, rpcCtx polerpc.RpcServerCon
 	cfgReq := new(pojo.ConfigRequest)
 	if err := ptypes.UnmarshalAny(req.Body, cfgReq); err != nil {
 		_ = rpcCtx.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  err.Error(),
 		})
 		return
@@ -150,7 +151,7 @@ func (ca *ConfAPI) modifyConfig(cxt context.Context, rpcCtx polerpc.RpcServerCon
 	cfgReq := new(pojo.ConfigRequest)
 	if err := ptypes.UnmarshalAny(req.Body, cfgReq); err != nil {
 		_ = rpcCtx.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  err.Error(),
 		})
 		return
@@ -164,7 +165,7 @@ func (ca *ConfAPI) deleteConfig(cxt context.Context, rpcCtx polerpc.RpcServerCon
 	cfgReq := new(pojo.ConfigRequest)
 	if err := ptypes.UnmarshalAny(req.Body, cfgReq); err != nil {
 		_ = rpcCtx.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  err.Error(),
 		})
 		return
@@ -172,13 +173,13 @@ func (ca *ConfAPI) deleteConfig(cxt context.Context, rpcCtx polerpc.RpcServerCon
 	ca.cfgCore.operateConfig(OpForDeleteConfig, cfgReq, rpcCtx)
 }
 
-//watch 监听一个配置文件
-func (ca *ConfAPI) watch(cxt context.Context, rpcCtx polerpc.RpcServerContext) {
+//watchConfig 监听一个配置文件
+func (ca *ConfAPI) watchConfig(cxt context.Context, rpcCtx polerpc.RpcServerContext) {
 	req := rpcCtx.GetReq()
 	cfgReq := new(pojo.ConfigWatchRequest)
 	if err := ptypes.UnmarshalAny(req.Body, cfgReq); err != nil {
 		_ = rpcCtx.Send(&polerpc.ServerResponse{
-			Code: -1,
+			Code: http.StatusInternalServerError,
 			Msg:  err.Error(),
 		})
 		return

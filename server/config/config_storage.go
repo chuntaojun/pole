@@ -52,7 +52,7 @@ func (ctx *ConfigOpContext) Run(cfg *ConfigFile, chain ...CfgFunction) {
 	}
 }
 
-func (ctx *ConfigOpContext) RunBeta(cfg *ConfigBetaFile, chain ...[]CfgFunction) {
+func (ctx *ConfigOpContext) RunBeta(cfg *ConfigBetaFile, chain ...CbCfgFunction) {
 	for _, op := range chain {
 		op(ctx.tx, cfg)
 	}
@@ -108,5 +108,5 @@ type EmbeddedRdsConfigStorage struct {
 }
 
 type ExternalRdsConfigStorage struct {
-	rds *sql.DB
+	rds storage.Rds
 }

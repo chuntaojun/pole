@@ -6,6 +6,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -18,7 +19,7 @@ import (
 	"github.com/pole-group/pole/utils"
 )
 
-//ConfigCore
+//ConfigCore 配置管理核心模块
 type ConfigCore struct {
 	filterChain *HandlerChain
 	watcherMgn  *WatcherManager
@@ -45,7 +46,7 @@ func (c *ConfigCore) operateConfig(op ConfigOpType, request *pojo.ConfigRequest,
 	}
 	err := c.filterChain.Do(context.TODO(), cFile)
 	if err != nil {
-		rpcCtx.Send(&polerpc.ServerResponse{
+		_ = rpcCtx.Send(&polerpc.ServerResponse{
 			Code: http.StatusInternalServerError,
 			Msg:  err.Error(),
 		})
@@ -62,6 +63,7 @@ func (c *ConfigCore) operateConfig(op ConfigOpType, request *pojo.ConfigRequest,
 
 }
 
+//operateNormalConfig 正常配置文件操作
 func (c *ConfigCore) operateNormalConfig(op ConfigOpType, cfg *ConfigFile) {
 	if op == OpForCreateConfig || op == OpForModifyConfig {
 		c.storageOp.SaveConfig(cfg)
@@ -69,17 +71,31 @@ func (c *ConfigCore) operateNormalConfig(op ConfigOpType, cfg *ConfigFile) {
 
 }
 
+//operateBetaConfig 灰度配置文件操作
 func (c *ConfigCore) operateBetaConfig(op ConfigOpType, cfg *ConfigBetaFile) {
 	if op == OpForCreateConfig || op == OpForModifyConfig {
 	}
 
 }
 
+//listenConfig 进行配置监听
 func (c *ConfigCore) listenConfig(request *pojo.ConfigWatchRequest, rpcCtx polerpc.RpcServerContext) {
-
+	ok, err := c.watcherMgn.AddWatcher(request, rpcCtx)
+	if !ok || err != nil {
+		sys.ConfigWatchLogger.Error("add config watcher failed, error : %#v", err)
+		_ = rpcCtx.Send(&polerpc.ServerResponse{
+			Code: http.StatusInternalServerError,
+			Msg:  fmt.Sprintf("add config watch failed"),
+		})
+	} else {
+		_ = rpcCtx.Send(&polerpc.ServerResponse{
+			Code: http.StatusOK,
+			Msg:  "success",
+		})
+	}
 }
 
-//WatcherManager
+//WatcherManager 配置监听管理
 type WatcherManager struct {
 	lock              sync.RWMutex
 	watcherRepository map[string]*aggWatcher // <namespace, aggWatcher>
@@ -92,7 +108,7 @@ func (mgn *WatcherManager) Init() {
 	}
 }
 
-//AddWatcher
+//AddWatcher 添加一个配置监听
 func (mgn *WatcherManager) AddWatcher(req *pojo.ConfigWatchRequest, rpcCtx polerpc.RpcServerContext) (bool, error) {
 	id := req.Id
 	namespace := req.Namespace
@@ -141,35 +157,46 @@ func (mgn *WatcherManager) AddWatcher(req *pojo.ConfigWatchRequest, rpcCtx poler
 func (mgn *WatcherManager) OnEvent(event notify.Event) {
 	switch e := event.(type) {
 	case *ConfigChangeEvent:
-		namespace := e.Namespace
-
-		mgn.lock.RLock()
-
-		ids, exist := mgn.watcherRepository[namespace]
-		if !exist {
-			sys.ConfigWatchLogger.Error("namespace %s don't exist", namespace)
-			mgn.lock.RUnlock()
-			return
-		}
-		mgn.lock.RUnlock()
-
-		group := e.Group
-
-		defer ids.lock.RUnlock()
-		ids.lock.RLock()
-
-		for _, watcher := range ids.watcherMap {
-			if _, ok := watcher.itemMap[group]; ok {
-				polerpc.Go(e, func(v interface{}) {
-					event := v.(*ConfigChangeEvent)
-					watcher.onConfigChange(event)
-				})
-			}
-		}
+		mgn.selectWatcher(nil, e.Namespace, e.Group, func(watcher *watcher) {
+			polerpc.Go(e, func(v interface{}) {
+				event := v.(*ConfigChangeEvent)
+				watcher.onConfigChange(event)
+			})
+		})
 	case *ConfigBetaChangeEvent:
 
 	default:
 	}
+}
+
+func (mgn *WatcherManager) selectWatcher(clientIds []string, namespace, group string, callback func(watcher *watcher)) {
+	mgn.lock.RLock()
+
+	ids, exist := mgn.watcherRepository[namespace]
+	if !exist {
+		sys.ConfigWatchLogger.Error("namespace %s don't exist", namespace)
+		mgn.lock.RUnlock()
+		return
+	}
+	mgn.lock.RUnlock()
+
+	defer ids.lock.RUnlock()
+	ids.lock.RLock()
+
+	sets := polerpc.NewSetWithValues(clientIds)
+
+	for _, watcher := range ids.watcherMap {
+		if _, ok := watcher.itemMap[group]; ok {
+			if sets.IsEmpty() {
+				callback(watcher)
+			} else {
+				if sets.Contain(watcher.id) {
+					callback(watcher)
+				}
+			}
+		}
+	}
+	return
 }
 
 //SubscribeTypes 获取订阅的事件类型列表
@@ -258,6 +285,6 @@ func (w *watcher) onConfigChange(event *ConfigChangeEvent) {
 			Msg:  "success",
 		}
 
-		w.sink.Send(resp)
+		_ = w.sink.Send(resp)
 	}
 }
